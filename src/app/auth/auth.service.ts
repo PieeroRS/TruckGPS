@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, Injector, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { User } from '@supabase/supabase-js';
 
@@ -16,6 +16,7 @@ export type UserProfile = {
 export class AuthService {
   private readonly supabase = inject(SupabaseService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   readonly isLoggedIn = signal(false);
   readonly profile = signal<UserProfile | null>(null);
@@ -83,12 +84,19 @@ export class AuthService {
       await this.loadProfile(session.user);
     }
 
-    this.supabase.client.auth.onAuthStateChange(async (_event, sess) => {
+    this.supabase.client.auth.onAuthStateChange(async (event, sess) => {
       this.isLoggedIn.set(!!sess);
       if (sess?.user) {
         await this.loadProfile(sess.user);
       } else {
         this.profile.set(null);
+        // Sesión cerrada / expirada: sacar de rutas protegidas
+        if (event === 'SIGNED_OUT') {
+          const url = this.router.url;
+          if (url && !url.startsWith('/login')) {
+            await this.router.navigateByUrl('/login');
+          }
+        }
       }
     });
   }
@@ -126,17 +134,38 @@ export class AuthService {
     this.isLoggedIn.set(!!data.session);
     if (data.user) {
       await this.loadProfile(data.user);
+      try {
+        const { LocationTrackingService } = await import('../core/services/location-tracking.service');
+        await this.injector.get(LocationTrackingService).resumeIfNeeded();
+      } catch {
+        /* ignore */
+      }
     }
     return { ok: true };
   }
 
   async logout(): Promise<void> {
+    try {
+      const { LocationTrackingService } = await import('../core/services/location-tracking.service');
+      await this.injector.get(LocationTrackingService).stop(true);
+    } catch {
+      /* ignore */
+    }
+
     if (this.supabase.client) {
       await this.supabase.client.auth.signOut();
     }
     this.isLoggedIn.set(false);
     this.profile.set(null);
     await this.router.navigateByUrl('/login');
+  }
+
+  /** Cierre de sesión con confirmación opcional (UI). */
+  async logoutConfirm(): Promise<void> {
+    if (typeof window !== 'undefined' && !window.confirm('¿Cerrar sesión en TruckGPS?')) {
+      return;
+    }
+    await this.logout();
   }
 
   private async loadProfile(user: User): Promise<void> {

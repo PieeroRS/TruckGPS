@@ -118,8 +118,19 @@ import { LayoutService } from '../../core/services/layout.service';
                 {{ tracking.lat()!.toFixed(5) }}, {{ tracking.lng()!.toFixed(5) }}
               </p>
             }
+            <div class="flex flex-wrap items-center justify-center gap-2 text-[11px]">
+              @if (tracking.background()) {
+                <span class="badge badge-warning">Segundo plano</span>
+              } @else {
+                <span class="badge badge-success">Pestaña activa</span>
+              }
+              @if (tracking.wakeLockHeld()) {
+                <span class="badge badge-info">Pantalla activa</span>
+              }
+            </div>
             <p class="text-[11px] text-slate-500 text-center leading-relaxed">
-              Tu posición aparece en <strong>Mapa en Vivo</strong> para el centro de control.
+              Tu posición aparece en <strong>Mapa en Vivo</strong>. Puedes salir a otras pantallas de TruckGPS:
+              el GPS sigue enviando. En el celular, deja la app abierta o en segundo plano con permiso de ubicación.
             </p>
           </div>
 
@@ -151,8 +162,9 @@ import { LayoutService } from '../../core/services/layout.service';
               Activar ubicación en vivo
             }
           </button>
-          <p class="text-center text-[11px] text-slate-500 -mt-2">
-            Se pedirá permiso de ubicación del navegador o del celular.
+          <p class="text-center text-[11px] text-slate-500 -mt-2 leading-relaxed">
+            Se pedirá permiso de ubicación. Elige <strong>Permitir mientras se usa la app</strong>
+            (o siempre) para que el seguimiento continúe al cambiar de pantalla.
           </p>
         }
 
@@ -166,9 +178,15 @@ import { LayoutService } from '../../core/services/layout.service';
         <div class="card p-4 bg-blue-50/60 border-blue-100 fade-in-up">
           <div class="flex items-start gap-2 text-xs text-blue-900">
             <lucide-icon [img]="locateIcon" [size]="16" class="shrink-0 mt-0.5 text-blue-600" />
-            <div class="leading-relaxed">
-              <strong>Conductor en ruta:</strong> elige el camión en el que viajas y activa el GPS.
-              Mientras esté encendido, tu unidad se actualiza en el mapa en tiempo real.
+            <div class="leading-relaxed space-y-1.5">
+              <p>
+                <strong>Conductor en ruta:</strong> elige el camión y activa el GPS.
+                El seguimiento sigue al navegar dentro de TruckGPS y se reanuda al volver a la app.
+              </p>
+              <p class="text-blue-800/80">
+                Si cierras por completo el navegador, al abrir TruckGPS de nuevo se reactivará
+                automáticamente (mismo teléfono y misma cuenta).
+              </p>
             </div>
           </div>
         </div>

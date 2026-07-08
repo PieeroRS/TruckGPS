@@ -6,8 +6,8 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
-  ChevronUp,
   LayoutDashboard,
+  LogOut,
   LucideAngularModule,
   Map,
   MapPin,
@@ -15,6 +15,7 @@ import {
   Route,
   Search,
   Truck,
+  User,
   Users
 } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
@@ -105,17 +106,28 @@ const STAFF_NAV = {
               </p>
             </a>
 
-            <div
-              class="mt-3 flex items-center gap-2.5 px-2 py-2.5 rounded-lg hover:bg-white/5 transition cursor-pointer"
-              [routerLink]="auth.isStaff() ? '/equipo' : '/mi-perfil'"
-              (click)="closeDrawer()"
-            >
-              <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white">{{ auth.initials() }}</div>
-              <div class="flex-1 min-w-0">
-                <div class="text-xs font-semibold text-slate-100 truncate">{{ auth.profile()?.full_name ?? 'Usuario' }}</div>
-                <div class="text-[10px] text-slate-400 truncate">{{ auth.profile()?.email ?? '' }}</div>
-              </div>
-              <lucide-icon [img]="chevronUpIcon" [size]="14" class="text-slate-400" />
+            <div class="mt-3 rounded-lg border border-white/10 overflow-hidden">
+              <a
+                routerLink="/mi-perfil"
+                class="flex items-center gap-2.5 px-2 py-2.5 hover:bg-white/5 transition"
+                (click)="closeDrawer()"
+              >
+                <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white">{{ auth.initials() }}</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-semibold text-slate-100 truncate">{{ auth.profile()?.full_name ?? 'Usuario' }}</div>
+                  <div class="text-[10px] text-slate-400 truncate">{{ auth.profile()?.email ?? '' }}</div>
+                </div>
+                <lucide-icon [img]="userIcon" [size]="14" class="text-slate-400" />
+              </a>
+              <button
+                type="button"
+                class="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-red-300 hover:bg-red-500/15 transition border-t border-white/10"
+                [disabled]="loggingOut()"
+                (click)="onLogout()"
+              >
+                <lucide-icon [img]="logoutIcon" [size]="14" />
+                {{ loggingOut() ? 'Cerrando sesión...' : 'Cerrar sesión' }}
+              </button>
             </div>
           </div>
         </aside>
@@ -167,6 +179,16 @@ const STAFF_NAV = {
               <div class="text-xs font-semibold text-slate-700">{{ auth.profile()?.full_name ?? 'Usuario' }}</div>
               <div class="text-[11px] text-slate-500">{{ auth.roleLabel() }}</div>
             </div>
+            <button
+              type="button"
+              class="ml-1 p-2 rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600 transition"
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              [disabled]="loggingOut()"
+              (click)="onLogout()"
+            >
+              <lucide-icon [img]="logoutIcon" [size]="18" />
+            </button>
           </div>
         </header>
 
@@ -188,12 +210,14 @@ export class MainLayoutComponent {
   readonly truckIcon = Truck;
   readonly alertCircleIcon = AlertCircle;
   readonly mapPinIcon = MapPin;
-  readonly chevronUpIcon = ChevronUp;
   readonly menuIcon = Menu;
   readonly searchIcon = Search;
   readonly bellIcon = Bell;
+  readonly logoutIcon = LogOut;
+  readonly userIcon = User;
 
   readonly drawerOpen = signal(false);
+  readonly loggingOut = signal(false);
 
   constructor() {
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
@@ -213,5 +237,17 @@ export class MainLayoutComponent {
 
   closeDrawer(): void {
     this.drawerOpen.set(false);
+  }
+
+  async onLogout(): Promise<void> {
+    if (this.loggingOut()) return;
+    if (!confirm('¿Cerrar sesión en TruckGPS?')) return;
+    this.loggingOut.set(true);
+    this.closeDrawer();
+    try {
+      await this.auth.logout();
+    } finally {
+      this.loggingOut.set(false);
+    }
   }
 }

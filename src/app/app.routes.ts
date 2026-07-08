@@ -4,12 +4,14 @@ export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'login' },
   {
     path: 'login',
+    canActivate: [() => import('./auth/auth.guard').then((m) => m.guestGuard)],
     loadComponent: () =>
       import('./auth/login-page.component').then((m) => m.LoginPageComponent)
   },
   {
     path: '',
     canActivate: [() => import('./auth/auth.guard').then((m) => m.authGuard)],
+    canActivateChild: [() => import('./auth/auth.guard').then((m) => m.authGuard)],
     loadComponent: () =>
       import('./core/layout/main-layout.component').then((m) => m.MainLayoutComponent),
     children: [

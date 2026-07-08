@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideAngularModule, User } from 'lucide-angular';
+import { LogOut, LucideAngularModule, User } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
 import { LayoutService } from '../../core/services/layout.service';
 
@@ -11,37 +11,53 @@ import { LayoutService } from '../../core/services/layout.service';
   imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 flex justify-center">
-      <div class="w-full max-w-lg card p-5">
-        <h2 class="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
-          <lucide-icon [img]="userIcon" [size]="20" /> Mi perfil
-        </h2>
-        <p class="text-xs text-slate-500 mb-5">Actualiza tu información personal.</p>
-        <div class="space-y-3">
-          <div>
-            <label class="input-label">Nombre completo</label>
-            <input type="text" class="input" [(ngModel)]="fullName" name="fullName" />
+      <div class="w-full max-w-lg space-y-4">
+        <div class="card p-5">
+          <h2 class="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
+            <lucide-icon [img]="userIcon" [size]="20" /> Mi perfil
+          </h2>
+          <p class="text-xs text-slate-500 mb-5">Actualiza tu información personal.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="input-label">Nombre completo</label>
+              <input type="text" class="input" [(ngModel)]="fullName" name="fullName" />
+            </div>
+            <div>
+              <label class="input-label">Correo</label>
+              <input type="email" class="input bg-slate-50" [value]="auth.profile()?.email ?? ''" disabled />
+            </div>
+            <div>
+              <label class="input-label">Rol</label>
+              <input type="text" class="input bg-slate-50" [value]="auth.roleLabel()" disabled />
+            </div>
+            @if (error()) {
+              <p class="text-xs text-red-600">{{ error() }}</p>
+            }
+            @if (success()) {
+              <p class="text-xs text-emerald-600">{{ success() }}</p>
+            }
+            <button
+              type="button"
+              class="w-full py-2.5 rounded-md bg-blue-700 text-white text-sm font-semibold hover:bg-blue-800 disabled:opacity-50"
+              [disabled]="saving()"
+              (click)="save()"
+            >
+              {{ saving() ? 'Guardando...' : 'Guardar cambios' }}
+            </button>
           </div>
-          <div>
-            <label class="input-label">Correo</label>
-            <input type="email" class="input bg-slate-50" [value]="auth.profile()?.email ?? ''" disabled />
-          </div>
-          <div>
-            <label class="input-label">Rol</label>
-            <input type="text" class="input bg-slate-50" [value]="auth.roleLabel()" disabled />
-          </div>
-          @if (error()) {
-            <p class="text-xs text-red-600">{{ error() }}</p>
-          }
-          @if (success()) {
-            <p class="text-xs text-emerald-600">{{ success() }}</p>
-          }
+        </div>
+
+        <div class="card p-5">
+          <h3 class="text-sm font-semibold text-slate-900 mb-1">Sesión</h3>
+          <p class="text-xs text-slate-500 mb-4">Cierra sesión en este dispositivo. El GPS en vivo se detendrá.</p>
           <button
             type="button"
-            class="w-full py-2.5 rounded-md bg-blue-700 text-white text-sm font-semibold hover:bg-blue-800 disabled:opacity-50"
-            [disabled]="saving()"
-            (click)="save()"
+            class="w-full py-2.5 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 transition flex items-center justify-center gap-2 disabled:opacity-50"
+            [disabled]="loggingOut()"
+            (click)="logout()"
           >
-            {{ saving() ? 'Guardando...' : 'Guardar cambios' }}
+            <lucide-icon [img]="logoutIcon" [size]="16" />
+            {{ loggingOut() ? 'Cerrando sesión...' : 'Cerrar sesión' }}
           </button>
         </div>
       </div>
@@ -53,7 +69,9 @@ export class MiPerfilPageComponent implements OnInit {
   private readonly layout = inject(LayoutService);
 
   readonly userIcon = User;
+  readonly logoutIcon = LogOut;
   readonly saving = signal(false);
+  readonly loggingOut = signal(false);
   readonly error = signal<string | null>(null);
   readonly success = signal<string | null>(null);
 
@@ -74,6 +92,16 @@ export class MiPerfilPageComponent implements OnInit {
       this.error.set(result.error ?? 'Error al guardar');
     } else {
       this.success.set('Perfil actualizado.');
+    }
+  }
+
+  async logout(): Promise<void> {
+    if (!confirm('¿Cerrar sesión en TruckGPS?')) return;
+    this.loggingOut.set(true);
+    try {
+      await this.auth.logout();
+    } finally {
+      this.loggingOut.set(false);
     }
   }
 }

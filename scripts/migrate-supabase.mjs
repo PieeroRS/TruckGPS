@@ -33,7 +33,8 @@ const migrations = [
   '004_ensure_profiles.sql',
   '005_map_live.sql',
   '006_nav_routes.sql',
-  '007_crud_policies.sql'
+  '007_crud_policies.sql',
+  '008_tracking_all_accounts.sql'
 ].map((f) => join(root, 'supabase/migrations', f));
 
 const files = process.env.SKIP_SEED === '1'

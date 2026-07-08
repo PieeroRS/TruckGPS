@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { LucideAngularModule, Truck } from 'lucide-angular';
 import { AuthService } from '../auth/auth.service';
 
@@ -51,9 +51,10 @@ import { AuthService } from '../auth/auth.service';
     </div>
   `
 })
-export class LoginPageComponent {
+export class LoginPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly truckIcon = Truck;
 
@@ -61,6 +62,14 @@ export class LoginPageComponent {
   password = '';
   error = '';
   submitting = false;
+  private redirectTo = '/dashboard';
+
+  ngOnInit(): void {
+    const redirect = this.route.snapshot.queryParamMap.get('redirect');
+    if (redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.startsWith('/login')) {
+      this.redirectTo = redirect;
+    }
+  }
 
   async submit(): Promise<void> {
     this.error = '';
@@ -71,6 +80,6 @@ export class LoginPageComponent {
       this.error = result.error ?? 'Credenciales inválidas.';
       return;
     }
-    await this.router.navigateByUrl('/dashboard');
+    await this.router.navigateByUrl(this.redirectTo);
   }
 }
