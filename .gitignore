@@ -39,6 +39,5 @@ testem.log
 /typings
 __screenshots__/
 
-# System files
-.DS_Store
-Thumbs.db
+# Local Supabase credentials (optional override)
+src/environments/environment.local.ts
