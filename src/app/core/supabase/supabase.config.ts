@@ -1,6 +1,8 @@
 import { environment } from '../../../environments/environment';
 
 export function isSupabaseConfigured(): boolean {
+  if (environment.useMockAuth) return false;
+  
   const url = environment.supabaseUrl?.trim() ?? '';
   const key = environment.supabaseAnonKey?.trim() ?? '';
   return url.length > 0 && key.length > 0 && url.startsWith('https://');

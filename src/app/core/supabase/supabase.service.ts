@@ -12,4 +12,6 @@ export class SupabaseService {
   get isConfigured(): boolean {
     return this.client !== null;
   }
+  
+  constructor() { console.log('client:', this.client); } 
 }
