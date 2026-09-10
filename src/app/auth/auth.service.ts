@@ -1,9 +1,9 @@
 import { Injectable, Injector, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { User } from '@supabase/supabase-js';
 
-import { SupabaseService } from '../core/supabase/supabase.service';
-import { isSupabaseConfigured } from '../core/supabase/supabase.config';
+import { ApiService } from '../core/api/api.service';
+import { TOKEN_KEY } from '../core/api/auth.interceptor';
+import { apiErrorMessage } from '../core/utils/api-error.util';
 
 export type UserProfile = {
   id: string;
@@ -12,15 +12,21 @@ export type UserProfile = {
   role: 'admin' | 'supervisor' | 'conductor';
 };
 
+type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  profile: UserProfile;
+};
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly supabase = inject(SupabaseService);
+  private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
 
   readonly isLoggedIn = signal(false);
   readonly profile = signal<UserProfile | null>(null);
-  readonly useSupabase = isSupabaseConfigured();
+  readonly useBackend = true;
 
   isStaff(): boolean {
     const role = this.profile()?.role;
@@ -44,104 +50,66 @@ export class AuthService {
   }
 
   async refreshProfile(): Promise<void> {
-    if (!this.supabase.client) return;
-    const { data } = await this.supabase.client.auth.getSession();
-    if (data.session?.user) {
-      await this.loadProfile(data.session.user);
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    try {
+      const profile = await this.api.get<UserProfile>('/auth/me');
+      this.profile.set(profile);
+      this.isLoggedIn.set(true);
+    } catch {
+      this.clearSession();
     }
   }
 
   async updateOwnProfile(fullName: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.supabase.client) return { ok: false, error: 'Modo demo' };
-
-    const { data: userData, error: userErr } = await this.supabase.client.auth.getUser();
-    if (userErr || !userData.user) {
-      return { ok: false, error: 'Sin sesión activa. Vuelve a iniciar sesión.' };
+    try {
+      const profile = await this.api.patch<UserProfile>('/auth/me', { full_name: fullName.trim() });
+      this.profile.set(profile);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo actualizar el perfil') };
     }
-
-    await this.loadProfile(userData.user);
-
-    const id = this.profile()?.id ?? userData.user.id;
-    const { error } = await this.supabase.client
-      .from('profiles')
-      .update({ full_name: fullName.trim() })
-      .eq('id', id);
-
-    if (error) return { ok: false, error: error.message };
-
-    await this.loadProfile(userData.user);
-    return { ok: true };
   }
 
   async initSession(): Promise<void> {
-    if (!this.supabase.client) return;
-
-    const { data } = await this.supabase.client.auth.getSession();
-    const session = data.session;
-    this.isLoggedIn.set(!!session);
-
-    if (session?.user) {
-      await this.loadProfile(session.user);
-    }
-
-    this.supabase.client.auth.onAuthStateChange(async (event, sess) => {
-      this.isLoggedIn.set(!!sess);
-      if (sess?.user) {
-        await this.loadProfile(sess.user);
-      } else {
-        this.profile.set(null);
-        // Sesión cerrada / expirada: sacar de rutas protegidas
-        if (event === 'SIGNED_OUT') {
-          const url = this.router.url;
-          if (url && !url.startsWith('/login')) {
-            await this.router.navigateByUrl('/login');
-          }
-        }
-      }
-    });
+    await this.ensureSession();
   }
 
   async ensureSession(): Promise<boolean> {
-    if (!this.supabase.client) {
-      return this.isLoggedIn();
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      this.clearSession(false);
+      return false;
     }
-
-    const { data } = await this.supabase.client.auth.getSession();
-    const ok = !!data.session;
-    this.isLoggedIn.set(ok);
-
-    if (ok && data.session?.user) {
-      await this.loadProfile(data.session.user);
+    try {
+      const profile = await this.api.get<UserProfile>('/auth/me');
+      this.profile.set(profile);
+      this.isLoggedIn.set(true);
+      return true;
+    } catch {
+      this.clearSession();
+      return false;
     }
-
-    return ok;
   }
 
   async login(identifier: string, password: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.supabase.client) {
-      const demo = identifier === 'camionessa' && password === 'password';
-      this.isLoggedIn.set(demo);
-      return demo ? { ok: true } : { ok: false, error: 'Credenciales inválidas. Usa camionessa / password.' };
-    }
-
-    const email = identifier.includes('@') ? identifier : `${identifier}@truckgps.pe`;
-    const { data, error } = await this.supabase.client.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      return { ok: false, error: error.message };
-    }
-
-    this.isLoggedIn.set(!!data.session);
-    if (data.user) {
-      await this.loadProfile(data.user);
+    try {
+      const data = await this.api.post<LoginResponse>('/auth/login', {
+        email: identifier,
+        password
+      });
+      localStorage.setItem(TOKEN_KEY, data.access_token);
+      this.profile.set(data.profile);
+      this.isLoggedIn.set(true);
       try {
         const { LocationTrackingService } = await import('../core/services/location-tracking.service');
         await this.injector.get(LocationTrackingService).resumeIfNeeded();
       } catch {
         /* ignore */
       }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'Credenciales inválidas') };
     }
-    return { ok: true };
   }
 
   async logout(): Promise<void> {
@@ -151,16 +119,10 @@ export class AuthService {
     } catch {
       /* ignore */
     }
-
-    if (this.supabase.client) {
-      await this.supabase.client.auth.signOut();
-    }
-    this.isLoggedIn.set(false);
-    this.profile.set(null);
+    this.clearSession();
     await this.router.navigateByUrl('/login');
   }
 
-  /** Cierre de sesión con confirmación opcional (UI). */
   async logoutConfirm(): Promise<void> {
     if (typeof window !== 'undefined' && !window.confirm('¿Cerrar sesión en TruckGPS?')) {
       return;
@@ -168,32 +130,9 @@ export class AuthService {
     await this.logout();
   }
 
-  private async loadProfile(user: User): Promise<void> {
-    if (!this.supabase.client) return;
-
-    const { data, error } = await this.supabase.client.rpc('ensure_user_profile');
-    if (!error && data) {
-      this.profile.set(data as UserProfile);
-      return;
-    }
-
-    const { data: row, error: selectErr } = await this.supabase.client
-      .from('profiles')
-      .select('id, full_name, email, role')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (!selectErr && row) {
-      this.profile.set(row as UserProfile);
-      return;
-    }
-
-    const meta = user.user_metadata ?? {};
-    this.profile.set({
-      id: user.id,
-      full_name: (meta['full_name'] as string) ?? user.email?.split('@')[0] ?? 'Usuario',
-      email: user.email ?? '',
-      role: (meta['role'] as UserProfile['role']) ?? 'conductor'
-    });
+  private clearSession(removeToken = true): void {
+    if (removeToken) localStorage.removeItem(TOKEN_KEY);
+    this.isLoggedIn.set(false);
+    this.profile.set(null);
   }
 }

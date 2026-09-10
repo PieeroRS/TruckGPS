@@ -1,9 +1,8 @@
 import { Injectable, inject, signal } from '@angular/core';
 
 import { AuthService } from '../../auth/auth.service';
-import { isSupabaseConfigured } from '../supabase/supabase.config';
-import { SupabaseService } from '../supabase/supabase.service';
-import { supabaseErrorMessage } from '../utils/supabase-error.util';
+import { ApiService } from '../api/api.service';
+import { apiErrorMessage } from '../utils/api-error.util';
 
 export interface VehicleOption {
   id: string;
@@ -28,7 +27,7 @@ interface PersistedState {
 
 @Injectable({ providedIn: 'root' })
 export class LocationTrackingService {
-  private readonly supabase = inject(SupabaseService);
+  private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
 
   readonly active = signal(false);
@@ -55,38 +54,16 @@ export class LocationTrackingService {
 
   async loadVehicleOptions(): Promise<VehicleOption[]> {
     const userId = this.auth.profile()?.id;
-    if (!this.supabase.client || !userId) return [];
-
-    const { data, error } = await this.supabase.client
-      .from('vehicles')
-      .select('id, placa, modelo, ruta, conductor_id, profiles:conductor_id ( full_name )')
-      .order('placa');
-
-    if (error) throw new Error(supabaseErrorMessage(error, 'No se pudo cargar la flota'));
-
-    return (data ?? []).map((row) => {
-      const conductorId = row.conductor_id as string | null;
-      const rawProfile = row.profiles as { full_name: string } | { full_name: string }[] | null;
-      const profile = Array.isArray(rawProfile) ? rawProfile[0] : rawProfile;
-      const esMio = conductorId === userId;
-      return {
-        id: row.id as string,
-        placa: row.placa as string,
-        modelo: row.modelo as string,
-        ruta: (row.ruta as string | null) ?? '—',
-        conductorNombre: profile?.full_name ?? null,
-        ocupado: !!conductorId && !esMio,
-        esMio
-      };
-    });
+    if (!userId) return [];
+    try {
+      return await this.api.get<VehicleOption[]>('/vehicles/options');
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'No se pudo cargar la flota'));
+    }
   }
 
   async start(vehicleId: string, placa: string): Promise<{ ok: boolean; error?: string }> {
     this.error.set(null);
-
-    if (!isSupabaseConfigured() || !this.supabase.client) {
-      return { ok: false, error: 'Supabase no configurado. Conecta el proyecto para compartir ubicación.' };
-    }
 
     await this.auth.refreshProfile();
     const userId = this.auth.profile()?.id;
@@ -104,29 +81,19 @@ export class LocationTrackingService {
     this.starting = true;
 
     try {
-      // Si ya hay otro vehículo activo, liberarlo primero
       const prev = this.vehicleId();
       if (prev && prev !== vehicleId && this.active()) {
-        await this.releaseVehicleRpc(prev);
+        await this.releaseVehicle(prev);
         this.clearWatchOnly();
       }
 
-      const { data: claimed, error: claimErr } = await this.supabase.client.rpc('claim_vehicle', {
-        p_vehicle_id: vehicleId
-      });
-
-      if (claimErr) {
+      try {
+        await this.api.post(`/vehicles/${vehicleId}/claim`);
+      } catch (e) {
         return {
           ok: false,
-          error: supabaseErrorMessage(
-            claimErr,
-            'No se pudo asignar el vehículo. ¿Ya está en uso por otro conductor?'
-          )
+          error: apiErrorMessage(e, 'No se pudo asignar el vehículo. ¿Ya está en uso por otro conductor?')
         };
-      }
-
-      if (!claimed) {
-        return { ok: false, error: 'No se pudo reclamar el vehículo (sin respuesta del servidor).' };
       }
 
       this.vehicleId.set(vehicleId);
@@ -135,7 +102,7 @@ export class LocationTrackingService {
 
       const geoOk = await this.startWatch();
       if (!geoOk.ok) {
-        await this.releaseVehicleRpc(vehicleId);
+        await this.releaseVehicle(vehicleId);
         this.clearLocalState(false);
         return geoOk;
       }
@@ -158,14 +125,14 @@ export class LocationTrackingService {
 
     const vid = this.vehicleId();
     if (releaseVehicle && vid) {
-      await this.releaseVehicleRpc(vid);
+      await this.releaseVehicle(vid);
     }
 
     this.clearLocalState(releaseVehicle);
   }
 
   async resumeIfNeeded(): Promise<void> {
-    if (!isSupabaseConfigured() || this.active() || this.starting) return;
+    if (this.active() || this.starting) return;
 
     let saved: PersistedState | null = null;
     try {
@@ -177,7 +144,6 @@ export class LocationTrackingService {
 
     if (!saved?.vehicleId || !saved.placa) return;
 
-    // Si hay usuario en la persistencia y no coincide, no reanudar
     const currentUser = this.auth.profile()?.id;
     if (saved.userId && currentUser && saved.userId !== currentUser) {
       localStorage.removeItem(STORAGE_KEY);
@@ -218,10 +184,9 @@ export class LocationTrackingService {
         { enableHighAccuracy: true, maximumAge: 8_000, timeout: 25_000 }
       );
 
-      // Timeout de seguridad si nunca llega posición
       setTimeout(() => {
         if (!resolved && this.watchId !== null) {
-          finish({ ok: true }); // watch ya está activo; GPS puede tardar
+          finish({ ok: true });
         }
       }, 12_000);
     });
@@ -250,88 +215,28 @@ export class LocationTrackingService {
 
   private async sendPosition(lat: number, lng: number, speed: number): Promise<void> {
     const vid = this.vehicleId();
-    if (!vid || !this.supabase.client) return;
+    if (!vid) return;
 
     this.syncing.set(true);
     try {
-      const { error } = await this.supabase.client.rpc('report_vehicle_position', {
-        p_vehicle_id: vid,
-        p_lat: lat,
-        p_lng: lng,
-        p_velocidad: speed
-      });
-
-      if (error) {
-        // Fallback: insert + update directo (si la RPC aún no está migrada)
-        const msg = error.message ?? '';
-        if (msg.includes('report_vehicle_position') || msg.includes('Could not find')) {
-          await this.sendPositionFallback(vid, lat, lng, speed);
-          return;
-        }
-        this.error.set(supabaseErrorMessage(error, 'Error al enviar ubicación'));
-        return;
-      }
-
+      await this.api.post(`/vehicles/${vid}/position`, { lat, lng, velocidad: speed });
       this.error.set(null);
       this.lastSentAt = Date.now();
       this.lastSentLat = lat;
       this.lastSentLng = lng;
       this.lastSync.set(new Date());
+    } catch (e) {
+      this.error.set(apiErrorMessage(e, 'Error al enviar ubicación'));
     } finally {
       this.syncing.set(false);
     }
   }
 
-  private async sendPositionFallback(vid: string, lat: number, lng: number, speed: number): Promise<void> {
-    if (!this.supabase.client) return;
-
-    const { error: posErr } = await this.supabase.client.from('vehicle_positions').insert({
-      vehicle_id: vid,
-      lat,
-      lng,
-      velocidad: speed
-    });
-
-    if (posErr) {
-      this.error.set(supabaseErrorMessage(posErr, 'Error al enviar ubicación'));
-      return;
-    }
-
-    const { data, error: updErr } = await this.supabase.client
-      .from('vehicles')
-      .update({ lat, lng, velocidad: speed, estado: 'ok' })
-      .eq('id', vid)
-      .select('id');
-
-    if (updErr) {
-      this.error.set(supabaseErrorMessage(updErr, 'Error al actualizar vehículo'));
-      return;
-    }
-    if (!data?.length) {
-      this.error.set('No se pudo actualizar el vehículo (permisos RLS). Ejecuta la migración 008.');
-      return;
-    }
-
-    this.error.set(null);
-    this.lastSentAt = Date.now();
-    this.lastSentLat = lat;
-    this.lastSentLng = lng;
-    this.lastSync.set(new Date());
-  }
-
-  private async releaseVehicleRpc(vehicleId: string): Promise<void> {
-    if (!this.supabase.client) return;
-    const { error } = await this.supabase.client.rpc('release_vehicle', { p_vehicle_id: vehicleId });
-    if (error) {
-      // Fallback
-      const userId = this.auth.profile()?.id;
-      if (userId) {
-        await this.supabase.client
-          .from('vehicles')
-          .update({ conductor_id: null, velocidad: 0 })
-          .eq('id', vehicleId)
-          .eq('conductor_id', userId);
-      }
+  private async releaseVehicle(vehicleId: string): Promise<void> {
+    try {
+      await this.api.post(`/vehicles/${vehicleId}/release`);
+    } catch {
+      /* ignore */
     }
   }
 
@@ -361,8 +266,6 @@ export class LocationTrackingService {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  // --- Segundo plano / ciclo de vida ---
-
   private bindLifecycle(): void {
     this.unbindLifecycle();
 
@@ -376,7 +279,6 @@ export class LocationTrackingService {
 
     this.pageHideHandler = () => {
       this.background.set(true);
-      // Intentar un último envío antes de suspender
       const lat = this.lat();
       const lng = this.lng();
       if (lat != null && lng != null) {
@@ -403,11 +305,9 @@ export class LocationTrackingService {
 
   private async onForeground(): Promise<void> {
     void this.requestWakeLock();
-    // Re-asegurar watch (iOS/Android a veces lo pausan)
     if (this.active() && this.watchId === null) {
       await this.startWatch();
     }
-    // Forzar sync inmediato
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => void this.onPosition(pos, true),
@@ -454,7 +354,6 @@ export class LocationTrackingService {
       this.wakeLock.addEventListener('release', () => {
         this.wakeLockHeld.set(false);
         this.wakeLock = null;
-        // Reintentar si el tracking sigue activo y la pestaña visible
         if (this.active() && document.visibilityState === 'visible') {
           void this.requestWakeLock();
         }

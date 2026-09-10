@@ -347,7 +347,7 @@ export class EquipoPageComponent implements OnInit {
       return;
     }
 
-    this.formSuccess.set('Cuenta creada. Si Supabase exige confirmación por correo, el conductor debe validar su email.');
+    this.formSuccess.set('Cuenta creada. El conductor ya puede iniciar sesión con su email y contraseña.');
     await this.load();
     setTimeout(() => this.closeCreate(), 1500);
   }

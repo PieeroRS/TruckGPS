@@ -39,5 +39,5 @@ testem.log
 /typings
 __screenshots__/
 
-# Local Supabase credentials (optional override)
+# Local environment overrides
 src/environments/environment.local.ts

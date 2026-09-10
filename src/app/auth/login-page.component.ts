@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LucideAngularModule, Truck } from 'lucide-angular';
@@ -18,18 +18,15 @@ import { AuthService } from '../auth/auth.service';
           </div>
           <h1 class="text-xl font-bold text-slate-900 tracking-tight">TruckGPS</h1>
           <p class="text-sm text-slate-500 mt-1">Control Center · Perú</p>
-          @if (!auth.useSupabase) {
-            <p class="text-[11px] text-slate-400 mt-2">Modo demo (sin Supabase configurado)</p>
-          }
         </div>
 
         <form class="space-y-1" (ngSubmit)="submit()" autocomplete="off">
-          <label class="input-label mt-3">{{ auth.useSupabase ? 'Email' : 'Usuario' }}</label>
+          <label class="input-label mt-3">Email</label>
           <input
             class="input"
             name="username"
             [(ngModel)]="username"
-            [placeholder]="auth.useSupabase ? 'operaciones@truckgps.pe' : 'camionessa'"
+            placeholder="operaciones@truckgps.pe"
           />
 
           <label class="input-label mt-3">Contraseña</label>
@@ -46,6 +43,10 @@ import { AuthService } from '../auth/auth.service';
           >
             {{ submitting ? 'Ingresando...' : 'Ingresar' }}
           </button>
+          <p class="text-[11px] text-slate-400 mt-3 text-center leading-relaxed">
+            Supervisor: operaciones@truckgps.pe / password<br />
+            Conductor: conductor@truckgps.pe / password
+          </p>
         </form>
       </div>
     </div>

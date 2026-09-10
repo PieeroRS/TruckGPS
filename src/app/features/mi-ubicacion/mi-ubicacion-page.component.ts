@@ -75,7 +75,7 @@ import { LayoutService } from '../../core/services/layout.service';
               }
             </select>
             @if (vehicles().length === 0) {
-              <p class="text-xs text-amber-700 mt-2">No hay vehículos disponibles. Verifica tu sesión en Supabase.</p>
+              <p class="text-xs text-amber-700 mt-2">No hay vehículos disponibles. Vuelve a iniciar sesión e intenta de nuevo.</p>
             }
             @if (selectedVehicle(); as sel) {
               <p class="text-[11px] text-slate-500 mt-2 flex items-center gap-1">

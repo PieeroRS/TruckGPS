@@ -3,7 +3,7 @@ import { Incident } from '../models/incident.model';
 import { ChartBars, ChartDonut, ChartTrend, HeatmapPoint } from '../models/reports.model';
 import { Vehicle } from '../models/vehicle.model';
 
-/** Fallback demo (máx. 3 registros) cuando Supabase no está configurado. */
+/** Datos de ejemplo usados como placeholder visual mientras carga el API. */
 export const SEED_VEHICLES: Vehicle[] = [
   { placa: 'ABC-123', conductor: 'Sin asignar', modelo: 'Volvo FH 540', estado: 'ok', ruta: 'Lima → Trujillo', lat: -12.0464, lng: -77.0428, velocidad: 78, km: 142850, proxMant: '2026-06-12' },
   { placa: 'DGR-456', conductor: 'Sin asignar', modelo: 'Scania R 450', estado: 'warn', ruta: 'Arequipa → Cusco', lat: -16.409, lng: -71.537, velocidad: 0, km: 98430, proxMant: '2026-05-18' },

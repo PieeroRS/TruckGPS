@@ -38,7 +38,7 @@ import { LayoutService } from '../../core/services/layout.service';
 import { NavRoutesService } from '../../core/services/nav-routes.service';
 import { RoutingService } from '../../core/services/routing.service';
 import { createOsmMap } from '../../core/utils/map.utils';
-import { supabaseErrorMessage } from '../../core/utils/supabase-error.util';
+import { apiErrorMessage } from '../../core/utils/api-error.util';
 
 @Component({
   standalone: true,
@@ -177,14 +177,6 @@ import { supabaseErrorMessage } from '../../core/utils/supabase-error.util';
               }
               Solicitar ruta
             </button>
-          }
-
-          @if (navRoutes.tableMissing()) {
-            <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-xs p-3 leading-relaxed">
-              <strong>Falta configurar Supabase:</strong> ejecuta el archivo
-              <code class="text-[10px] bg-amber-100 px-1 rounded">supabase/migrations/006_nav_routes.sql</code>
-              en Dashboard → SQL Editor → Run.
-            </div>
           }
 
           @if (formError()) {
@@ -445,7 +437,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
       this.selectedVehicleId = '';
       this.clearMapOverlays();
     } catch (e) {
-      this.formError.set(supabaseErrorMessage(e, 'No se pudo crear la ruta'));
+      this.formError.set(apiErrorMessage(e, 'No se pudo crear la ruta'));
     } finally {
       this.creating.set(false);
     }

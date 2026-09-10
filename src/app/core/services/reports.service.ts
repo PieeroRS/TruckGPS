@@ -7,7 +7,6 @@ import {
 } from '../data/seed.data';
 import { ChartBars, ChartDonut, ChartTrend, HeatmapPoint } from '../models/reports.model';
 import { incidentsToHeatmap } from '../supabase/supabase.mappers';
-import { SupabaseService } from '../supabase/supabase.service';
 import { IncidentService } from './incident.service';
 import { Incident } from '../models/incident.model';
 
@@ -15,7 +14,6 @@ const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'S
 
 @Injectable({ providedIn: 'root' })
 export class ReportsService {
-  private readonly supabase = inject(SupabaseService);
   private readonly incidents = inject(IncidentService);
 
   readonly heatmap = signal<HeatmapPoint[]>(SEED_HEATMAP);
@@ -25,8 +23,6 @@ export class ReportsService {
   readonly loading = signal(false);
 
   async load(): Promise<void> {
-    if (!this.supabase.client) return;
-
     this.loading.set(true);
     try {
       await this.incidents.load();
