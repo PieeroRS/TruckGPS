@@ -15,6 +15,7 @@ import {
   Menu,
   Route,
   Search,
+  ShieldAlert,
   Truck,
   User,
   Users
@@ -32,12 +33,10 @@ const BASE_NAV = [
   { key: 'reportes', label: 'Reportes', icon: BarChart3, path: '/reportes' }
 ] as const;
 
-const STAFF_NAV = {
-  key: 'equipo',
-  label: 'Equipo',
-  icon: Users,
-  path: '/equipo'
-} as const;
+const STAFF_NAV = [
+  { key: 'zonas', label: 'Zonas y avisos', icon: ShieldAlert, path: '/zonas' },
+  { key: 'equipo', label: 'Equipo', icon: Users, path: '/equipo' }
+] as const;
 
 @Component({
   standalone: true,
@@ -207,7 +206,7 @@ export class MainLayoutComponent {
   private readonly router = inject(Router);
 
   readonly navItems = computed(() =>
-    this.auth.isStaff() ? [...BASE_NAV, STAFF_NAV] : [...BASE_NAV]
+    this.auth.isStaff() ? [...BASE_NAV, ...STAFF_NAV] : [...BASE_NAV]
   );
   readonly truckIcon = Truck;
   readonly alertCircleIcon = AlertCircle;

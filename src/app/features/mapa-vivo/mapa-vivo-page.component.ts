@@ -31,6 +31,8 @@ import {
 import { SAMPLE_ROUTES } from '../../core/data/seed.data';
 import { FleetService } from '../../core/services/fleet.service';
 import { LayoutService } from '../../core/services/layout.service';
+import { ZonesService } from '../../core/services/zones.service';
+import { zoneColor } from '../../core/models/zone.model';
 import { Vehicle } from '../../core/models/vehicle.model';
 import {
   bindVehicleTooltip,
@@ -257,6 +259,7 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
 export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly fleet = inject(FleetService);
   private readonly layout = inject(LayoutService);
+  private readonly zonesSvc = inject(ZonesService);
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('mapEl') mapEl!: ElementRef<HTMLDivElement>;
@@ -379,6 +382,20 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     this.markers.get(v.placa)?.openTooltip();
   }
 
+  /** Dibuja las zonas peligrosas activas como círculos de referencia. */
+  private async drawRiskZones(): Promise<void> {
+    try {
+      const zones = await this.zonesSvc.loadZones();
+      if (!this.map) return;
+      for (const z of zones.filter((zz) => zz.activa)) {
+        const c = zoneColor(z.tipo);
+        L.circle([z.lat, z.lng], { radius: z.radioM, color: c, weight: 1.5, fillColor: c, fillOpacity: 0.12, interactive: false }).addTo(this.map);
+      }
+    } catch {
+      /* las zonas son informativas: si fallan, el mapa sigue funcionando */
+    }
+  }
+
   private initMap(): void {
     const vehicles = this.fleet.vehicles();
     const center: [number, number] =
@@ -391,6 +408,8 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     for (const r of SAMPLE_ROUTES) {
       L.polyline(r.coords, { color: r.color, weight: 3, opacity: 0.6, dashArray: '6 8' }).addTo(this.map);
     }
+
+    void this.drawRiskZones();
 
     setTimeout(() => this.map?.invalidateSize(), 0);
   }
