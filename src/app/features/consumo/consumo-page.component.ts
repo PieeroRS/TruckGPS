@@ -20,6 +20,7 @@ import { AuthService } from '../../auth/auth.service';
 import { FuelLog, FuelRouteRow, FuelVehicleRow } from '../../core/models/fuel.model';
 import { FleetService } from '../../core/services/fleet.service';
 import { FuelService } from '../../core/services/fuel.service';
+import { LayoutService } from '../../core/services/layout.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
 
 type LogForm = {
@@ -414,6 +415,7 @@ export class ConsumoPageComponent implements OnInit {
   readonly fuel = inject(FuelService);
   readonly auth = inject(AuthService);
   private readonly fleet = inject(FleetService);
+  private readonly layout = inject(LayoutService);
 
   readonly plusIcon = Plus;
   readonly fuelIcon = Fuel;
@@ -457,6 +459,7 @@ export class ConsumoPageComponent implements OnInit {
   });
 
   async ngOnInit(): Promise<void> {
+    this.layout.setPage('Consumo', 'Combustible, rendimiento y costo por kilómetro');
     await this.reload();
   }
 
