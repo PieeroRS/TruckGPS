@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  Fuel,
   LayoutDashboard,
   LogOut,
   LucideAngularModule,
@@ -27,6 +28,7 @@ const BASE_NAV = [
   { key: 'mapa-vivo', label: 'Mapa en Vivo', icon: Map, path: '/mapa-vivo' },
   { key: 'incidencias', label: 'Incidencias', icon: AlertTriangle, path: '/incidencias' },
   { key: 'flota', label: 'Flota', icon: Truck, path: '/flota' },
+  { key: 'consumo', label: 'Consumo', icon: Fuel, path: '/consumo' },
   { key: 'reportes', label: 'Reportes', icon: BarChart3, path: '/reportes' }
 ] as const;
 

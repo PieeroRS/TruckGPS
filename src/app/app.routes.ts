@@ -42,6 +42,11 @@ export const routes: Routes = [
           import('./features/flota/flota-page.component').then((m) => m.FlotaPageComponent)
       },
       {
+        path: 'consumo',
+        loadComponent: () =>
+          import('./features/consumo/consumo-page.component').then((m) => m.ConsumoPageComponent)
+      },
+      {
         path: 'reportes',
         loadComponent: () =>
           import('./features/reportes/reportes-page.component').then((m) => m.ReportesPageComponent)

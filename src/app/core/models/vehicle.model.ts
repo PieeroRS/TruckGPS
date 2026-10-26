@@ -12,4 +12,6 @@ export interface Vehicle {
   velocidad: number;
   km: number;
   proxMant: string;
+  rendimientoKmGal?: number | null;
+  tanqueGal?: number | null;
 }
