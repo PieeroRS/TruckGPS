@@ -18,10 +18,12 @@ import {
   ShieldAlert,
   Truck,
   User,
-  Users
+  Users,
+  X
 } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
 import { LayoutService } from '../services/layout.service';
+import { ZoneProximityService } from '../services/zone-proximity.service';
 
 const BASE_NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -193,6 +195,34 @@ const STAFF_NAV = [
           </div>
         </header>
 
+        @if (proximity.inside(); as hit) {
+          @if (proximity.dismissedId() !== hit.zone.id) {
+            <div class="flex items-start gap-3 px-4 py-3 bg-red-600 text-white shadow-md" role="alert" aria-live="assertive">
+              <lucide-icon [img]="alertTriangleIcon" [size]="20" class="mt-0.5 shrink-0" />
+              <div class="min-w-0 flex-1">
+                <p class="text-[13.5px] font-bold leading-snug">Estás en zona peligrosa: {{ hit.zone.nombre }}</p>
+                <p class="text-[12px] text-red-50 leading-snug mt-0.5">{{ hit.zone.tipoLabel }}{{ hit.zone.notas ? ' · ' + hit.zone.notas : '' }}</p>
+                <p class="text-[11.5px] text-red-100 mt-1">No te detengas, mantén puertas cerradas y usa el botón de pánico si es necesario.</p>
+              </div>
+              <button type="button" class="shrink-0 p-1 rounded-md hover:bg-red-500 transition" (click)="proximity.dismiss()" aria-label="Ocultar aviso">
+                <lucide-icon [img]="closeIcon" [size]="16" />
+              </button>
+            </div>
+          }
+        } @else if (proximity.near(); as hit) {
+          @if (proximity.dismissedId() !== hit.zone.id) {
+            <div class="flex items-center gap-3 px-4 py-2.5 bg-amber-100 text-amber-900 border-b border-amber-200" role="status">
+              <lucide-icon [img]="alertTriangleIcon" [size]="16" class="shrink-0 text-amber-600" />
+              <p class="text-[12.5px] leading-snug flex-1 min-w-0">
+                Te acercas a <strong>{{ hit.zone.nombre }}</strong> ({{ hit.zone.tipoLabel }}), a {{ metersToEdge(hit) }} del borde.
+              </p>
+              <button type="button" class="shrink-0 p-1 rounded-md hover:bg-amber-200 transition" (click)="proximity.dismiss()" aria-label="Ocultar aviso">
+                <lucide-icon [img]="closeIcon" [size]="14" />
+              </button>
+            </div>
+          }
+        }
+
         <main class="flex-1 min-h-0">
           <router-outlet />
         </main>
@@ -203,6 +233,14 @@ const STAFF_NAV = [
 export class MainLayoutComponent {
   readonly layout = inject(LayoutService);
   readonly auth = inject(AuthService);
+  readonly proximity = inject(ZoneProximityService);
+  readonly alertTriangleIcon = AlertTriangle;
+  readonly closeIcon = X;
+
+  metersToEdge(hit: { zone: { radioM: number }; distanceM: number }): string {
+    const m = Math.max(0, Math.round(hit.distanceM - hit.zone.radioM));
+    return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+  }
   private readonly router = inject(Router);
 
   readonly navItems = computed(() =>

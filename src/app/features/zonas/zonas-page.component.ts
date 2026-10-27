@@ -24,6 +24,7 @@ import { LayoutService } from '../../core/services/layout.service';
 import { ZonesService } from '../../core/services/zones.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
 import { createOsmMap } from '../../core/utils/map.utils';
+import { DISTRICT_RISK, DISTRICT_SOURCES, DistrictLevel } from '../../core/data/district-risk';
 
 type ZoneForm = { nombre: string; tipo: ZoneType; radio_m: number; activa: boolean; notas: string };
 
@@ -110,28 +111,57 @@ const LIMA: [number, number] = [-12.0464, -77.0428];
               </div>
             </form>
           } @else {
-            <h3 class="text-[14px] font-bold text-slate-900 tracking-tight mb-3">Zonas ({{ zones().length }})</h3>
-            <div class="space-y-2 max-h-[400px] overflow-y-auto -mr-2 pr-2">
-              @for (z of zones(); track z.id) {
+            <div class="flex items-center justify-between gap-2 mb-3">
+              <h3 class="text-[14px] font-bold text-slate-900 tracking-tight">Zonas ({{ visibleZones().length }})</h3>
+              <div class="flex rounded-lg ring-1 ring-slate-200 p-0.5 text-[11.5px] font-semibold">
+                @for (f of filters; track f.value) {
+                  <button type="button" class="px-2.5 py-1 rounded-md transition" [class]="filter() === f.value ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-800'" (click)="filter.set(f.value)">{{ f.label }}</button>
+                }
+              </div>
+            </div>
+            <div class="space-y-2 max-h-[420px] overflow-y-auto -mr-2 pr-2">
+              @for (z of visibleZones(); track z.id) {
                 <div class="p-3 rounded-xl ring-1 ring-slate-200 hover:ring-slate-300 transition" [class.opacity-60]="!z.activa">
                   <div class="flex items-start gap-2.5">
                     <span class="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" [style.background]="color(z.tipo)"></span>
                     <button type="button" class="min-w-0 flex-1 text-left" (click)="focusZone(z)">
-                      <p class="text-[13px] font-semibold text-slate-800 truncate">{{ z.nombre }}</p>
-                      <p class="text-[11.5px] text-slate-400">{{ z.tipoLabel }} · radio {{ z.radioM }} m</p>
+                      <p class="text-[13px] font-semibold text-slate-800 leading-snug">{{ z.nombre }}</p>
+                      <p class="text-[11.5px] text-slate-400 mt-0.5">
+                        {{ z.tipoLabel }} · {{ z.radioM }} m
+                        @if (z.periodo) { · {{ z.periodo }} }
+                      </p>
+                      <div class="flex flex-wrap gap-1 mt-1">
+                        @if (z.origen === 'oficial') { <span class="badge badge-info">Oficial</span> }
+                        @if (z.nivel === 'muy_alto') { <span class="badge badge-danger">Riesgo muy alto</span> }
+                        @else if (z.nivel === 'alto') { <span class="badge badge-warning">Riesgo alto</span> }
+                      </div>
                     </button>
                     <div class="flex items-center gap-1 shrink-0">
                       <button type="button" class="px-2 py-1 rounded-md text-[11px] font-semibold ring-1 transition"
                         [class]="z.activa ? 'ring-emerald-200 bg-emerald-50 text-emerald-700' : 'ring-slate-200 text-slate-500'"
                         (click)="toggleZone(z)">{{ z.activa ? 'Activa' : 'Inactiva' }}</button>
-                      <button type="button" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" (click)="editZone(z)" aria-label="Editar zona">
-                        <lucide-icon [img]="pencilIcon" [size]="13" />
-                      </button>
-                      <button type="button" class="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition" (click)="removeZone(z)" aria-label="Eliminar zona">
-                        <lucide-icon [img]="trashIcon" [size]="13" />
-                      </button>
+                      @if (z.origen !== 'oficial') {
+                        <button type="button" class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" (click)="editZone(z)" aria-label="Editar zona">
+                          <lucide-icon [img]="pencilIcon" [size]="13" />
+                        </button>
+                        <button type="button" class="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition" (click)="removeZone(z)" aria-label="Eliminar zona">
+                          <lucide-icon [img]="trashIcon" [size]="13" />
+                        </button>
+                      }
                     </div>
                   </div>
+                  @if (z.notas || z.fuentes.length) {
+                    <div class="mt-2 pl-5">
+                      @if (z.notas) { <p class="text-[11.5px] text-slate-500 leading-snug">{{ z.notas }}</p> }
+                      @if (z.fuentes.length) {
+                        <p class="text-[11px] text-slate-400 mt-1">Fuente:
+                          @for (f of z.fuentes; track f.url; let last = $last) {
+                            <a [href]="f.url" target="_blank" rel="noopener" class="text-blue-600 hover:underline">{{ f.medio }} ({{ f.fecha }})</a>{{ last ? '' : ' · ' }}
+                          }
+                        </p>
+                      }
+                    </div>
+                  }
                 </div>
               } @empty {
                 <div class="text-center py-10">
@@ -171,6 +201,12 @@ const LIMA: [number, number] = [-12.0464, -77.0428];
               </div>
             </div>
           }
+          @if (status() && !status()!.zonasOficialesAvisan) {
+            <p class="text-[11.5px] text-slate-500 leading-relaxed mt-2 p-2.5 rounded-lg bg-slate-50 ring-1 ring-slate-200">
+              Las <strong class="font-semibold">zonas oficiales</strong> se muestran al conductor y quedan en el historial, pero no envían correo
+              para no saturarte. Si también quieres correo, agrega <span class="font-mono">OFFICIAL_ZONE_ALERTS=true</span> en Vercel.
+            </p>
+          }
           <p class="text-[11.5px] text-slate-400 leading-relaxed mt-2">
             Se avisa cuando un chofer reporta una incidencia o un pánico, y cuando una unidad entra a una zona activa
             (una vez por entrada; se repite tras {{ status()?.cooldownMin ?? 30 }} min).
@@ -186,12 +222,12 @@ const LIMA: [number, number] = [-12.0464, -77.0428];
           <div class="divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
             @for (n of history(); track n.id) {
               <div class="px-5 py-3 flex items-start gap-3">
-                <lucide-icon [img]="n.estado === 'enviado' ? okIcon : failIcon" [size]="15" class="mt-0.5 shrink-0"
-                  [class]="n.estado === 'enviado' ? 'text-emerald-500' : n.estado === 'fallido' ? 'text-red-500' : 'text-slate-300'" />
+                <lucide-icon [img]="n.estado === 'enviado' || n.estado === 'registrado' ? okIcon : failIcon" [size]="15" class="mt-0.5 shrink-0"
+                  [class]="n.estado === 'enviado' || n.estado === 'registrado' ? 'text-emerald-500' : n.estado === 'fallido' ? 'text-red-500' : 'text-slate-300'" />
                 <div class="min-w-0 flex-1">
                   <p class="text-[13px] font-medium text-slate-800">{{ n.titulo }}</p>
                   <p class="text-[11.5px] text-slate-400">
-                    {{ n.canal === 'email' ? 'Correo' : 'SMS' }} · {{ estadoLabel(n.estado) }}
+                    {{ canalLabel(n.canal) }} · {{ estadoLabel(n.estado) }}
                     @if (n.destinatarios) { · {{ n.destinatarios }} }
                     · {{ n.createdAt | date: 'dd/MM HH:mm' }}
                   </p>
@@ -205,6 +241,51 @@ const LIMA: [number, number] = [-12.0464, -77.0428];
               <p class="px-5 py-10 text-center text-[12.5px] text-slate-400">Todavía no se ha enviado ningún aviso.</p>
             }
           </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ RIESGO POR DISTRITO ═══════════ -->
+      <div class="card overflow-hidden mt-5 anim-in" style="animation-delay: 200ms">
+        <div class="px-5 py-3.5 border-b border-slate-200/80">
+          <h3 class="text-[14px] font-bold text-slate-900 tracking-tight">Riesgo por distrito (Lima y Callao, 2025)</h3>
+          <p class="text-[11.5px] text-slate-400 mt-0.5">Nivel según tasa de homicidios ene–ago 2025, ajustado por robos y extorsiones ene–abr 2025.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left">
+            <thead class="bg-slate-50/70 border-b border-slate-200 text-[10.5px] uppercase tracking-[0.08em] text-slate-400">
+              <tr>
+                <th class="px-4 py-2.5 font-semibold">Distrito</th>
+                <th class="px-4 py-2.5 font-semibold">Nivel</th>
+                <th class="px-4 py-2.5 font-semibold text-right">Homicidios<br/>ene–ago 25</th>
+                <th class="px-4 py-2.5 font-semibold text-right">Tasa<br/>x10 mil</th>
+                <th class="px-4 py-2.5 font-semibold text-right">Robos<br/>ene–abr 25</th>
+                <th class="px-4 py-2.5 font-semibold text-right">Extorsiones<br/>ene–abr 25</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-[12.5px]">
+              @for (d of districts; track d.distrito) {
+                <tr class="hover:bg-slate-50/70">
+                  <td class="px-4 py-2.5">
+                    <div class="font-medium text-slate-800">{{ d.distrito }}</div>
+                    <div class="text-[11px] text-slate-400">{{ d.provincia }}{{ d.nota ? ' · ' + d.nota : '' }}</div>
+                  </td>
+                  <td class="px-4 py-2.5"><span class="badge" [class]="levelBadge(d.nivel)">{{ levelLabel(d.nivel) }}</span></td>
+                  <td class="px-4 py-2.5 text-right tnum text-slate-600">{{ d.homicidios2025 ?? '—' }}</td>
+                  <td class="px-4 py-2.5 text-right tnum text-slate-600">{{ d.tasa2025 ?? '—' }}</td>
+                  <td class="px-4 py-2.5 text-right tnum text-slate-600">{{ d.robos2025 ?? '—' }}</td>
+                  <td class="px-4 py-2.5 text-right tnum text-slate-600">{{ d.extorsiones2025 ?? '—' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <div class="px-5 py-3 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed">
+          Fuentes:
+          @for (src of districtSources; track src.url; let last = $last) {
+            <a [href]="src.url" target="_blank" rel="noopener" class="text-blue-600 hover:underline">{{ src.medio }}</a> ({{ src.detalle }}){{ last ? '.' : ';' }}
+          }
+          Las cifras de robos y extorsiones solo se publicaron para los distritos con más casos; "—" significa sin dato público, no cero.
+          Coordenadas de zonas: © colaboradores de OpenStreetMap.
         </div>
       </div>
     </div>
@@ -232,6 +313,20 @@ export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly color = zoneColor;
 
   readonly zones = this.svc.zones;
+  readonly districts = DISTRICT_RISK;
+  readonly districtSources = DISTRICT_SOURCES;
+  readonly filters = [
+    { value: 'todas' as const, label: 'Todas' },
+    { value: 'oficial' as const, label: 'Oficiales' },
+    { value: 'usuario' as const, label: 'Mías' }
+  ];
+  readonly filter = signal<'todas' | 'oficial' | 'usuario'>('todas');
+  readonly visibleZones = computed(() => {
+    const f = this.filter();
+    const rows = this.zones().filter((z) => f === 'todas' || (z.origen ?? 'usuario') === f);
+    const rank = (z: RiskZone) => (z.nivel === 'muy_alto' ? 0 : z.nivel === 'alto' ? 1 : 2);
+    return [...rows].sort((a, b) => rank(a) - rank(b));
+  });
   readonly status = signal<NotificationStatus | null>(null);
   readonly history = signal<NotificationLogRow[]>([]);
   readonly error = signal<string | null>(null);
@@ -300,7 +395,11 @@ export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
         fillOpacity: z.activa ? 0.18 : 0.05,
         dashArray: z.activa ? undefined : '5 6'
       })
-        .bindTooltip(`<strong>${this.escape(z.nombre)}</strong><br/>${z.tipoLabel} · ${z.radioM} m${z.activa ? '' : ' · inactiva'}`)
+        .bindTooltip(
+          `<strong>${this.escape(z.nombre)}</strong><br/>${this.escape(z.tipoLabel)} · ${z.radioM} m${z.activa ? '' : ' · inactiva'}` +
+            (z.fuentes?.[0] ? `<br/><span style="opacity:.7">Fuente: ${this.escape(z.fuentes[0].medio)} (${this.escape(z.fuentes[0].fecha)})</span>` : ''),
+          { sticky: true, className: 'truck-tooltip zone-tooltip' }
+        )
         .addTo(this.zoneLayer);
     }
   }
@@ -409,7 +508,22 @@ export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   estadoLabel(e: string): string {
-    return e === 'enviado' ? 'enviado' : e === 'fallido' ? 'falló' : 'canal sin configurar';
+    if (e === 'enviado') return 'enviado';
+    if (e === 'fallido') return 'falló';
+    if (e === 'registrado') return 'registrado en la app';
+    return 'canal sin configurar';
+  }
+
+  canalLabel(c: string): string {
+    return c === 'email' ? 'Correo' : c === 'sms' ? 'SMS' : 'App';
+  }
+
+  levelLabel(n: DistrictLevel): string {
+    return n === 'muy_alto' ? 'Muy alto' : n === 'alto' ? 'Alto' : 'Medio';
+  }
+
+  levelBadge(n: DistrictLevel): string {
+    return n === 'muy_alto' ? 'badge-danger' : n === 'alto' ? 'badge-warning' : 'badge-neutral';
   }
 
   tipoLabel(t: string): string {
