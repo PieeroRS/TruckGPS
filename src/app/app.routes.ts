@@ -47,6 +47,12 @@ export const routes: Routes = [
           import('./features/consumo/consumo-page.component').then((m) => m.ConsumoPageComponent)
       },
       {
+        path: 'zonas',
+        canActivate: [() => import('./auth/supervisor.guard').then((m) => m.supervisorGuard)],
+        loadComponent: () =>
+          import('./features/zonas/zonas-page.component').then((m) => m.ZonasPageComponent)
+      },
+      {
         path: 'reportes',
         loadComponent: () =>
           import('./features/reportes/reportes-page.component').then((m) => m.ReportesPageComponent)
