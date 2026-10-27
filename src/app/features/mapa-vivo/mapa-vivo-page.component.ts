@@ -389,7 +389,14 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
       if (!this.map) return;
       for (const z of zones.filter((zz) => zz.activa)) {
         const c = zoneColor(z.tipo);
-        L.circle([z.lat, z.lng], { radius: z.radioM, color: c, weight: 1.5, fillColor: c, fillOpacity: 0.12, interactive: false }).addTo(this.map);
+        const esc = (t: string) => t.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] as string);
+        const fuente = z.fuentes?.[0] ? `<br/><span style="opacity:.7">Fuente: ${esc(z.fuentes[0].medio)} (${esc(z.fuentes[0].fecha)})</span>` : '';
+        L.circle([z.lat, z.lng], { radius: z.radioM, color: c, weight: 1.5, fillColor: c, fillOpacity: 0.14 })
+          .bindTooltip(
+            `<strong>⚠ ${esc(z.nombre)}</strong><br/>${esc(z.tipoLabel)}${z.notas ? '<br/>' + esc(z.notas) : ''}${fuente}`,
+            { sticky: true, className: 'truck-tooltip zone-tooltip' }
+          )
+          .addTo(this.map);
       }
     } catch {
       /* las zonas son informativas: si fallan, el mapa sigue funcionando */

@@ -261,6 +261,12 @@ body {
 .leaflet-tooltip.truck-tooltip::before {
   border-top-color: var(--brand-900) !important;
 }
+.leaflet-tooltip.zone-tooltip {
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  line-height: 1.35;
+}
 
 @keyframes pulse-ring {
   0% {
