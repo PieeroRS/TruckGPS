@@ -97,6 +97,51 @@ export class RoutingService {
     }));
   }
 
+  /** Nombre corto de un punto (calle y distrito) para mostrarlo en el campo. */
+  async reverseGeocode(lat: number, lng: number): Promise<string> {
+    try {
+      const url = new URL('https://nominatim.openstreetmap.org/reverse');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lng));
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('zoom', '18');
+      url.searchParams.set('addressdetails', '1');
+      url.searchParams.set('accept-language', 'es');
+      const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error();
+      const d = (await res.json()) as { address?: Record<string, string>; display_name?: string };
+      const a = d.address ?? {};
+      const calle = [a['road'] ?? a['pedestrian'] ?? a['neighbourhood'], a['house_number']].filter(Boolean).join(' ');
+      const zona = a['suburb'] ?? a['city_district'] ?? a['quarter'] ?? a['town'] ?? a['city'] ?? '';
+      const nombre = [calle, zona].filter(Boolean).join(', ');
+      return nombre || d.display_name?.split(',').slice(0, 2).join(',') || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    } catch {
+      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+  }
+
+  /** Posición actual del equipo, siempre fresca y con la mayor precisión disponible. */
+  currentPosition(): Promise<{ lat: number; lng: number; accuracy: number }> {
+    return new Promise((resolve, reject) => {
+      if (!('geolocation' in navigator)) {
+        reject(new Error('Este dispositivo no permite obtener la ubicación.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) }),
+        (err) =>
+          reject(
+            new Error(
+              err.code === err.PERMISSION_DENIED
+                ? 'Permiso de ubicación denegado. Actívalo en el navegador o escribe la dirección.'
+                : 'No se pudo obtener tu ubicación. Escribe la dirección o elígela en el mapa.'
+            )
+          ),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 }
+      );
+    });
+  }
+
   async planRoute(origin: GeoPlace, destination: GeoPlace): Promise<RoutePlan> {
     const coords = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
     const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
