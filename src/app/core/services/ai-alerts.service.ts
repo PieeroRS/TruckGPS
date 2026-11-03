@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 
 import { AuthService } from '../../auth/auth.service';
 import { ApiService } from '../api/api.service';
-import { AiAlert } from '../models/dashboard.model';
+import { AiAlert, AlertActionResult } from '../models/dashboard.model';
 import { IncidentSeverity } from '../models/incident.model';
 import { apiErrorMessage } from '../utils/api-error.util';
 
@@ -84,5 +84,28 @@ export class AiAlertsService {
       throw new Error(apiErrorMessage(e, 'No se pudo descartar'));
     }
     await this.load();
+  }
+
+  /** Ejecuta una acción de respuesta (recalcular ruta, crear incidencia, etc.). */
+  async executeAction(id: string, codigo: string, nota?: string): Promise<AlertActionResult> {
+    try {
+      const res = await this.api.post<AlertActionResult>(`/alerts/${id}/acciones`, { codigo, nota: nota || null });
+      this.alerts.update((list) =>
+        res.alerta.estado === 'resuelta' || res.alerta.estado === 'descartada'
+          ? list.filter((a) => a.id !== id)
+          : list.map((a) => (a.id === id ? res.alerta : a))
+      );
+      return res;
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'No se pudo ejecutar la acción'));
+    }
+  }
+
+  async history(): Promise<AiAlert[]> {
+    try {
+      return await this.api.get<AiAlert[]>('/alerts/historial');
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'No se pudo cargar el historial'));
+    }
   }
 }

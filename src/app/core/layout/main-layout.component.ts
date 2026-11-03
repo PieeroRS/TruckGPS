@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  FlaskConical,
   Fuel,
   LayoutDashboard,
   LogOut,
@@ -37,6 +38,7 @@ const BASE_NAV = [
 
 const STAFF_NAV = [
   { key: 'zonas', label: 'Zonas y avisos', icon: ShieldAlert, path: '/zonas' },
+  { key: 'simulador', label: 'Simulador', icon: FlaskConical, path: '/simulador' },
   { key: 'equipo', label: 'Equipo', icon: Users, path: '/equipo' }
 ] as const;
 

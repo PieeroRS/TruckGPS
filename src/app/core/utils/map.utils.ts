@@ -14,8 +14,8 @@ export function vehicleStatusInfo(estado: VehicleStatus) {
   )[estado];
 }
 
-export function buildTruckIcon(estado: VehicleStatus): L.DivIcon {
-  const cls = vehicleStatusInfo(estado).className;
+export function buildTruckIcon(estado: VehicleStatus, simulado = false): L.DivIcon {
+  const cls = vehicleStatusInfo(estado).className + (simulado ? ' sim' : '');
   return L.divIcon({
     className: '',
     html: `<div class="truck-marker ${cls}">${TRUCK_SVG}</div>`,
@@ -27,7 +27,7 @@ export function buildTruckIcon(estado: VehicleStatus): L.DivIcon {
 export function bindVehicleTooltip(marker: L.Marker, v: Vehicle): void {
   const info = vehicleStatusInfo(v.estado);
   marker.bindTooltip(
-    `<strong>${v.placa}</strong> · ${v.conductor}<br/>${info.label} · ${v.ruta}`,
+    `<strong>${v.placa}</strong>${v.simulado ? ' · <em>unidad de prueba</em>' : ` · ${v.conductor}`}<br/>${info.label} · ${v.velocidad} km/h · ${v.ruta}`,
     { direction: 'top', offset: [0, -10], className: 'truck-tooltip' }
   );
 }

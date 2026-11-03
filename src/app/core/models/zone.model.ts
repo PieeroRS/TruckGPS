@@ -1,4 +1,4 @@
-export type ZoneType = 'robo' | 'homicidio' | 'extorsion' | 'sin_senal' | 'peligro_vial' | 'riesgo';
+export type ZoneType = 'robo' | 'homicidio' | 'extorsion' | 'sin_senal' | 'peligro_vial' | 'riesgo' | 'geocerca';
 
 export interface ZoneSource {
   medio: string;
@@ -22,6 +22,8 @@ export interface RiskZone {
   fuentes: ZoneSource[];
   periodo: string | null;
   createdAt: string | null;
+  /** 'salida' para geocercas: avisa al salir en lugar de al entrar. */
+  alertaEn?: 'entrada' | 'salida';
 }
 
 export interface RiskZoneUpsert {
@@ -36,7 +38,7 @@ export interface RiskZoneUpsert {
 
 export interface NotificationLogRow {
   id: string;
-  tipo: 'panico' | 'incidente' | 'zona' | 'prueba';
+  tipo: 'panico' | 'incidente' | 'zona' | 'prueba' | 'motor';
   titulo: string;
   mensaje: string;
   canal: 'email' | 'sms' | 'app';
@@ -65,7 +67,8 @@ export const ZONE_TYPES: { value: ZoneType; label: string; color: string }[] = [
   { value: 'extorsion', label: 'Extorsión a transportistas', color: '#be185d' },
   { value: 'peligro_vial', label: 'Peligro vial', color: '#ea580c' },
   { value: 'sin_senal', label: 'Sin señal', color: '#7c3aed' },
-  { value: 'riesgo', label: 'Zona de riesgo', color: '#d97706' }
+  { value: 'riesgo', label: 'Zona de riesgo', color: '#d97706' },
+  { value: 'geocerca', label: 'Geocerca (avisa al salir)', color: '#059669' }
 ];
 
 export function zoneColor(tipo: string): string {

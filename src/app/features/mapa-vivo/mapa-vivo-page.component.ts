@@ -12,6 +12,7 @@ import {
   signal
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as L from 'leaflet';
 import { fromEvent } from 'rxjs';
@@ -32,6 +33,7 @@ import { SAMPLE_ROUTES } from '../../core/data/seed.data';
 import { FleetService } from '../../core/services/fleet.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ZonesService } from '../../core/services/zones.service';
+import { RoutingService } from '../../core/services/routing.service';
 import { zoneColor } from '../../core/models/zone.model';
 import { Vehicle } from '../../core/models/vehicle.model';
 import {
@@ -260,6 +262,7 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly fleet = inject(FleetService);
   private readonly layout = inject(LayoutService);
   private readonly zonesSvc = inject(ZonesService);
+  private readonly routing = inject(RoutingService);
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('mapEl') mapEl!: ElementRef<HTMLDivElement>;
@@ -298,6 +301,8 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private unsubscribeRealtime: (() => void) | null = null;
   private stopPolling: (() => void) | null = null;
   private didFitBounds = false;
+  private readonly route = inject(ActivatedRoute);
+  private trafficLayer: L.LayerGroup | null = null;
 
   constructor() {
     effect(() => {
@@ -324,7 +329,14 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     this.unsubscribeRealtime = this.fleet.subscribeToPositions(() => {
       this.refreshMarkers();
     });
-    this.stopPolling = this.fleet.startPolling(8_000);
+    this.stopPolling = this.fleet.startPolling(5_000);
+    // ?vehiculo=<id>: viene de «Ver en el mapa» de una alerta.
+    const vid = this.route.snapshot.queryParamMap.get('vehiculo');
+    const target = vid ? this.fleet.vehicles().find((v) => v.id === vid) : null;
+    if (target) {
+      this.didFitBounds = true;
+      setTimeout(() => this.focusVehicle(target), 300);
+    }
     fromEvent(window, 'resize')
       .pipe(startWith(null), debounceTime(150), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.map?.invalidateSize());
@@ -382,6 +394,20 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     this.markers.get(v.placa)?.openTooltip();
   }
 
+  /** Eventos de tráfico activos (congestión, bloqueos) registrados o simulados. */
+  private async drawTraffic(): Promise<void> {
+    const t = await this.routing.trafficStatus();
+    if (!this.map) return;
+    this.trafficLayer ??= L.layerGroup().addTo(this.map);
+    this.trafficLayer.clearLayers();
+    for (const ev of t?.eventos ?? []) {
+      const color = ev.nivel === 'bloqueo' ? '#7f1d1d' : ev.nivel === 'congestionado' ? '#dc2626' : '#f59e0b';
+      L.circle([ev.lat, ev.lng], { radius: ev.radioM, color, weight: 2, fillColor: color, fillOpacity: 0.2, dashArray: '4 4' })
+        .bindTooltip(`<strong>Tráfico: ${ev.descripcion}</strong><br/>${ev.nivel}`, { sticky: true, className: 'truck-tooltip' })
+        .addTo(this.trafficLayer);
+    }
+  }
+
   /** Dibuja las zonas peligrosas activas como círculos de referencia. */
   private async drawRiskZones(): Promise<void> {
     try {
@@ -391,9 +417,10 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
         const c = zoneColor(z.tipo);
         const esc = (t: string) => t.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] as string);
         const fuente = z.fuentes?.[0] ? `<br/><span style="opacity:.7">Fuente: ${esc(z.fuentes[0].medio)} (${esc(z.fuentes[0].fecha)})</span>` : '';
-        L.circle([z.lat, z.lng], { radius: z.radioM, color: c, weight: 1.5, fillColor: c, fillOpacity: 0.14 })
+        const geo = z.tipo === 'geocerca';
+        L.circle([z.lat, z.lng], { radius: z.radioM, color: c, weight: geo ? 2 : 1.5, fillColor: c, fillOpacity: geo ? 0.02 : 0.14, dashArray: geo ? '6 6' : undefined })
           .bindTooltip(
-            `<strong>⚠ ${esc(z.nombre)}</strong><br/>${esc(z.tipoLabel)}${z.notas ? '<br/>' + esc(z.notas) : ''}${fuente}`,
+            `<strong>${geo ? '' : '⚠ '}${esc(z.nombre)}</strong><br/>${esc(z.tipoLabel)}${z.notas ? '<br/>' + esc(z.notas) : ''}${fuente}`,
             { sticky: true, className: 'truck-tooltip zone-tooltip' }
           )
           .addTo(this.map);
@@ -417,6 +444,7 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     void this.drawRiskZones();
+    void this.drawTraffic();
 
     setTimeout(() => this.map?.invalidateSize(), 0);
   }
@@ -439,10 +467,10 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
       const existing = this.markers.get(v.placa);
       if (existing) {
         existing.setLatLng(pos);
-        existing.setIcon(buildTruckIcon(v.estado));
+        existing.setIcon(buildTruckIcon(v.estado, v.simulado));
         bindVehicleTooltip(existing, v);
       } else {
-        const m = L.marker(pos, { icon: buildTruckIcon(v.estado) }).addTo(this.map);
+        const m = L.marker(pos, { icon: buildTruckIcon(v.estado, v.simulado) }).addTo(this.map);
         bindVehicleTooltip(m, v);
         this.markers.set(v.placa, m);
       }

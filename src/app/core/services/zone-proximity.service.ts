@@ -43,7 +43,7 @@ export class ZoneProximityService {
     const lng = this.tracking.lng();
     if (!this.tracking.active() || lat === null || lng === null) return [];
     return this.zones()
-      .filter((z) => z.activa)
+      .filter((z) => z.activa && z.tipo !== 'geocerca')
       .map((zone) => ({ zone, distanceM: distanceM(lat, lng, zone.lat, zone.lng) }))
       .filter((h) => h.distanceM <= h.zone.radioM + NEAR_MARGIN_M)
       .sort((a, b) => a.distanceM - b.distanceM);

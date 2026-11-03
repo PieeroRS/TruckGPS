@@ -527,11 +527,11 @@ export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   tipoLabel(t: string): string {
-    return ({ panico: 'Pánico', incidente: 'Incidencia', zona: 'Zona', prueba: 'Prueba' } as Record<string, string>)[t] ?? t;
+    return ({ panico: 'Pánico', incidente: 'Incidencia', zona: 'Zona', prueba: 'Prueba', motor: 'Motor de detección' } as Record<string, string>)[t] ?? t;
   }
 
   tipoBadge(t: string): string {
-    return ({ panico: 'badge-danger', incidente: 'badge-warning', zona: 'badge-warning', prueba: 'badge-neutral' } as Record<string, string>)[t] ?? 'badge-neutral';
+    return ({ panico: 'badge-danger', incidente: 'badge-warning', zona: 'badge-warning', prueba: 'badge-neutral', motor: 'badge-danger' } as Record<string, string>)[t] ?? 'badge-neutral';
   }
 
   private escape(s: string): string {

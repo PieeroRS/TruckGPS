@@ -248,6 +248,11 @@ body {
   background: var(--danger-500);
   animation: pulse-ring 2s infinite;
 }
+/* Unidad de prueba: borde violeta punteado para distinguirla de la flota real. */
+.truck-marker.sim {
+  outline: 2px dashed #7c3aed;
+  outline-offset: 2px;
+}
 
 .leaflet-tooltip.truck-tooltip {
   background: var(--brand-900);
