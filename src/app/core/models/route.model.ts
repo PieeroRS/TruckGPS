@@ -13,6 +13,30 @@ export interface RoutePlan {
   distanceKm: number;
   durationMin: number;
   coordinates: [number, number][];
+  /** Tiempo estimado con tráfico (franja horaria de Lima + eventos activos). */
+  durationTrafficMin?: number;
+  trafficLevel?: 'fluido' | 'moderado' | 'congestionado';
+  franja?: string;
+  eventos?: { id: string; descripcion: string; nivel: string; demora_min: number }[];
+  recomendada?: boolean;
+}
+
+export interface TrafficEvent {
+  id: string;
+  descripcion: string;
+  nivel: 'moderado' | 'congestionado' | 'bloqueo';
+  lat: number;
+  lng: number;
+  radioM: number;
+  simulado: boolean;
+  expira: string | null;
+}
+
+export interface TrafficStatus {
+  eventos: TrafficEvent[];
+  factor: number;
+  franja: string;
+  nivel: 'fluido' | 'moderado' | 'congestionado';
 }
 
 export interface NavRoute {

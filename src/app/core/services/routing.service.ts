@@ -1,6 +1,21 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
-import { GeoPlace, RoutePlan } from '../models/route.model';
+import { ApiService } from '../api/api.service';
+import { GeoPlace, RoutePlan, TrafficStatus } from '../models/route.model';
+
+type PlanResponse = {
+  rutas: {
+    distance_km: number;
+    duration_min: number;
+    duration_traffic_min: number;
+    traffic_level: 'fluido' | 'moderado' | 'congestionado';
+    franja: string;
+    eventos: { id: string; descripcion: string; nivel: string; demora_min: number }[];
+    recomendada: boolean;
+    geometry: [number, number][];
+  }[];
+  franja: string;
+};
 
 type NominatimResult = {
   display_name: string;
@@ -18,6 +33,47 @@ type OsrmRoute = {
 
 @Injectable({ providedIn: 'root' })
 export class RoutingService {
+  private readonly api = inject(ApiService);
+
+  /** Hasta 3 rutas con tiempo estimado con tráfico, la recomendada primero. */
+  async planAlternatives(origin: GeoPlace, destination: GeoPlace): Promise<RoutePlan[]> {
+    const originShort = origin.name.split(',')[0];
+    const destShort = destination.name.split(',')[0];
+    try {
+      const res = await this.api.post<PlanResponse>('/nav-routes/plan', {
+        origin_lat: origin.lat,
+        origin_lng: origin.lng,
+        dest_lat: destination.lat,
+        dest_lng: destination.lng
+      });
+      if (res.rutas?.length) {
+        return res.rutas.map((r, i) => ({
+          origin,
+          destination,
+          label: i === 0 ? `${originShort} → ${destShort}` : `${originShort} → ${destShort} (alterna ${i})`,
+          distanceKm: Math.round(r.distance_km * 10) / 10,
+          durationMin: Math.round(r.duration_min),
+          durationTrafficMin: Math.round(r.duration_traffic_min),
+          trafficLevel: r.traffic_level,
+          franja: r.franja,
+          eventos: r.eventos,
+          recomendada: r.recomendada,
+          coordinates: r.geometry
+        }));
+      }
+    } catch {
+      // Sin backend de rutas: se usa OSRM directo desde el navegador (sin estimación de tráfico).
+    }
+    return [await this.planRoute(origin, destination)];
+  }
+
+  async trafficStatus(): Promise<TrafficStatus | null> {
+    try {
+      return await this.api.get<TrafficStatus>('/traffic');
+    } catch {
+      return null;
+    }
+  }
   async searchPlaces(query: string): Promise<GeoPlace[]> {
     const q = query.trim();
     if (q.length < 2) return [];

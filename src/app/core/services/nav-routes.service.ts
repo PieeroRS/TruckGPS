@@ -45,7 +45,7 @@ export class NavRoutesService {
         dest_lng: input.destination.lng,
         route_label: input.plan.label,
         distance_km: input.plan.distanceKm,
-        duration_min: input.plan.durationMin,
+        duration_min: input.plan.durationTrafficMin ?? input.plan.durationMin,
         geometry,
         fare_estimate: fare,
         notes: input.notes ?? null

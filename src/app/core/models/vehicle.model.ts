@@ -14,4 +14,6 @@ export interface Vehicle {
   proxMant: string;
   rendimientoKmGal?: number | null;
   tanqueGal?: number | null;
+  /** Unidad de prueba que se mueve sola (SIM-001). */
+  simulado?: boolean;
 }

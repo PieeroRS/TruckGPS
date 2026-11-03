@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -24,7 +25,7 @@ import { formatDate, formatKm, vehicleStatusInfo } from '../../core/utils/map.ut
 @Component({
   standalone: true,
   selector: 'app-flota-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
 
@@ -125,7 +126,12 @@ import { formatDate, formatKm, vehicleStatusInfo } from '../../core/utils/map.ut
                         <lucide-icon [img]="truckIcon" [size]="16" />
                       </div>
                       <div class="min-w-0">
-                        <div class="font-semibold font-mono text-slate-900 tracking-tight">{{ v.placa }}</div>
+                        <div class="font-semibold font-mono text-slate-900 tracking-tight flex items-center gap-1.5">
+                          {{ v.placa }}
+                          @if (v.simulado) {
+                            <span class="px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold bg-violet-50 text-violet-700 ring-1 ring-violet-200">Prueba</span>
+                          }
+                        </div>
                         <div class="text-[11.5px] text-slate-400 truncate">{{ v.modelo }}</div>
                       </div>
                     </div>
@@ -164,7 +170,11 @@ import { formatDate, formatKm, vehicleStatusInfo } from '../../core/utils/map.ut
                   </td>
 
                   <td class="px-4 py-3.5 text-right">
-                    @if (auth.isStaff()) {
+                    @if (v.simulado) {
+                      <a routerLink="/simulador" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-violet-700 ring-1 ring-violet-200 bg-violet-50/60 hover:bg-violet-100 transition">
+                        Abrir simulador
+                      </a>
+                    } @else if (auth.isStaff()) {
                       <div class="flex items-center justify-end gap-1.5">
                         <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-slate-300 transition active:scale-95" (click)="openEdit(v)">
                           <lucide-icon [img]="pencilIcon" [size]="11" />Editar

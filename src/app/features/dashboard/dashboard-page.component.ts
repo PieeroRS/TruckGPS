@@ -42,6 +42,7 @@ import { DashboardService } from '../../core/services/dashboard.service';
 import { FleetService } from '../../core/services/fleet.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { AiAlert } from '../../core/models/dashboard.model';
+import { AlertCardComponent } from '../../core/components/alert-card.component';
 import {
   bindVehicleTooltip,
   buildTruckIcon,
@@ -80,7 +81,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
 @Component({
   standalone: true,
   selector: 'app-dashboard-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, AlertCardComponent],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
 
@@ -194,56 +195,22 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
           <div class="p-3 sm:p-4 space-y-2.5 overflow-y-auto flex-1" style="max-height: 500px">
             @for (a of dashboard.aiAlerts(); track a.id; let ai = $index) {
-              <article class="ai-alert severity-{{ a.severidad }} alert-slide group" [style.animation-delay.ms]="ai * 50">
-                <div class="flex items-start gap-2.5">
-                  <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ring-1 transition-transform duration-200 group-hover:scale-105" [class]="sevIconClass(a.severidad)">
-                    <lucide-icon [img]="alertIcon(a.icon)" [size]="14" />
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-start justify-between gap-2">
-                      <h4 class="text-[13.5px] font-semibold text-slate-900 leading-snug tracking-tight">{{ a.titulo }}</h4>
-                      <span class="badge shrink-0" [class]="sevBadge(a.severidad)">{{ sevLabel(a.severidad) }}</span>
-                    </div>
-                    <p class="text-[12.5px] text-slate-600 mt-1 leading-relaxed">{{ a.descripcion }}</p>
-
-                    @if (a.afecta.length) {
-                      <div class="flex flex-wrap gap-1 mt-2">
-                        @for (p of a.afecta; track p) {
-                          <span class="px-1.5 py-0.5 rounded text-[10.5px] font-mono font-medium bg-slate-100 text-slate-600 ring-1 ring-slate-200/70">{{ p }}</span>
-                        }
-                      </div>
-                    }
-
-                    <div class="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-slate-100">
-                      <span class="flex items-center gap-1 text-[11px] text-slate-400">
-                        <lucide-icon [img]="clockIcon" [size]="11" />{{ a.tiempo }}
-                      </span>
-                      @if (auth.isStaff()) {
-                        <div class="flex items-center gap-2.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-                          <button type="button" class="text-[11px] font-semibold text-slate-500 hover:text-slate-900 transition" (click)="openAlertForm(a)">Editar</button>
-                          <span class="w-px h-3 bg-slate-200"></span>
-                          <button type="button" class="text-[11px] font-semibold text-amber-600 hover:text-amber-700 transition" (click)="dismissAlert(a.id)">Descartar</button>
-                          <span class="w-px h-3 bg-slate-200"></span>
-                          <button type="button" class="text-[11px] font-semibold text-red-500 hover:text-red-700 transition" (click)="deleteAlert(a.id)">Eliminar</button>
-                        </div>
-                      }
-                    </div>
-                  </div>
-                </div>
-              </article>
+              <div class="alert-slide" [style.animation-delay.ms]="ai * 50">
+                <app-alert-card [alert]="a" (changed)="onAlertChanged()" (edit)="openAlertForm($event)" (remove)="deleteAlert($event.id)" />
+              </div>
             } @empty {
               <div class="py-14 text-center">
                 <div class="w-12 h-12 rounded-xl bg-slate-50 ring-1 ring-slate-200/70 flex items-center justify-center mx-auto mb-3">
                   <lucide-icon [img]="inboxIcon" [size]="20" class="text-slate-300" />
                 </div>
                 <p class="text-[13px] font-medium text-slate-600">Sin alertas activas</p>
-                <p class="text-[12px] text-slate-400 mt-1 px-6 leading-relaxed">Todo en orden. El motor de IA notificará ante cualquier anomalía.</p>
+                <p class="text-[12px] text-slate-400 mt-1 px-6 leading-relaxed">Todo en orden. El motor de detección avisará ante cualquier anomalía.</p>
               </div>
             }
           </div>
 
           <div class="px-4 py-2.5 border-t border-slate-200/80 bg-slate-50/50">
-            <p class="text-[10.5px] text-center text-slate-400">Las alertas del LLM aparecerán aquí automáticamente.</p>
+            <p class="text-[10.5px] text-center text-slate-400">Alertas del motor de detección (desvío, spoofing, jamming, geocerca, tráfico, sabotaje) y manuales.</p>
           </div>
         </aside>
       </section>
@@ -462,6 +429,7 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
   alertForm: AiAlertInput = { titulo: '', descripcion: '', severidad: 'medium' };
   alertPlacas = '';
 
+  private poll: ReturnType<typeof setInterval> | null = null;
   private map: L.Map | null = null;
   private readonly markers = new Map<string, L.Marker>();
 
@@ -474,12 +442,18 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
   async ngAfterViewInit(): Promise<void> {
     await Promise.all([this.fleet.load(), this.dashboard.load(), this.aiAlerts.load()]);
     this.initMap();
+    // Las alertas del motor y la unidad de prueba llegan solas: refresco periódico.
+    this.poll = setInterval(() => {
+      if (document.hidden) return;
+      void this.dashboard.load().then(() => this.refreshMarkers());
+    }, 10000);
     fromEvent(window, 'resize')
       .pipe(startWith(null), debounceTime(150), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.map?.invalidateSize());
   }
 
   ngOnDestroy(): void {
+    if (this.poll) clearInterval(this.poll);
     this.map?.remove();
     this.map = null;
     this.markers.clear();
@@ -567,6 +541,11 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
     }
   }
 
+  async onAlertChanged(): Promise<void> {
+    await Promise.all([this.dashboard.load(), this.fleet.load()]);
+    this.refreshMarkers();
+  }
+
   async dismissAlert(id: string): Promise<void> {
     try {
       await this.aiAlerts.dismiss(id);
@@ -623,10 +602,10 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
       const existing = this.markers.get(v.placa);
       if (existing) {
         existing.setLatLng(pos);
-        existing.setIcon(buildTruckIcon(v.estado));
+        existing.setIcon(buildTruckIcon(v.estado, v.simulado));
         bindVehicleTooltip(existing, v);
       } else {
-        const m = L.marker(pos, { icon: buildTruckIcon(v.estado) }).addTo(this.map);
+        const m = L.marker(pos, { icon: buildTruckIcon(v.estado, v.simulado) }).addTo(this.map);
         bindVehicleTooltip(m, v);
         this.markers.set(v.placa, m);
       }

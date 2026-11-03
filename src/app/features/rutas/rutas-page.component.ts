@@ -6,6 +6,8 @@ import {
   ElementRef,
   OnInit,
   ViewChild,
+  OnDestroy,
+  computed,
   inject,
   signal
 } from '@angular/core';
@@ -30,6 +32,7 @@ import {
   NavRouteStatus,
   PERU_CITIES,
   RoutePlan,
+  TrafficStatus,
   statusBadge,
   statusLabel
 } from '../../core/models/route.model';
@@ -131,22 +134,63 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
 
           @if (plan(); as p) {
             <div class="rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white p-4 fade-in-up">
-              <div class="text-sm font-semibold mb-3">{{ p.label }}</div>
+              <div class="flex items-start justify-between gap-2 mb-3">
+                <div class="text-sm font-semibold">{{ p.label }}</div>
+                @if (p.trafficLevel) {
+                  <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0" [class]="trafficPill(p.trafficLevel)">{{ trafficLabel(p.trafficLevel) }}</span>
+                }
+              </div>
               <div class="grid grid-cols-3 gap-2 text-center">
                 <div>
                   <div class="text-[10px] text-slate-400 uppercase">Distancia</div>
                   <div class="text-lg font-bold">{{ p.distanceKm }} <span class="text-xs font-normal">km</span></div>
                 </div>
                 <div>
-                  <div class="text-[10px] text-slate-400 uppercase">Tiempo est.</div>
-                  <div class="text-lg font-bold">{{ formatDuration(p.durationMin) }}</div>
+                  <div class="text-[10px] text-slate-400 uppercase">{{ p.durationTrafficMin != null ? 'Con tráfico' : 'Tiempo est.' }}</div>
+                  <div class="text-lg font-bold">{{ formatDuration(p.durationTrafficMin ?? p.durationMin) }}</div>
                 </div>
                 <div>
                   <div class="text-[10px] text-slate-400 uppercase">Tarifa ref.</div>
                   <div class="text-lg font-bold">S/ {{ fare() }}</div>
                 </div>
               </div>
+              @if (p.durationTrafficMin != null) {
+                <p class="text-[10.5px] text-slate-400 mt-2 leading-snug">
+                  Sin tráfico: {{ formatDuration(p.durationMin) }} · estimado para {{ p.franja }}@if (p.eventos?.length) {; pasa por {{ p.eventos!.length }} evento(s) de tráfico (+{{ eventDelay(p) }} min)}.
+                </p>
+              }
             </div>
+
+            @if (plans().length > 1) {
+              <div>
+                <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Rutas alternativas ({{ plans().length }})</p>
+                <div class="space-y-1.5">
+                  @for (alt of plans(); track $index; let i = $index) {
+                    <button
+                      type="button"
+                      class="w-full text-left rounded-lg border px-3 py-2 transition flex items-center gap-3"
+                      [class]="selectedPlan() === i ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300' : 'border-slate-200 hover:border-slate-300'"
+                      (click)="selectPlan(i)"
+                    >
+                      <span class="w-3 h-3 rounded-full shrink-0" [style.background]="altColor(i)"></span>
+                      <span class="flex-1 min-w-0">
+                        <span class="block text-[12.5px] font-semibold text-slate-900">
+                          {{ formatDuration(alt.durationTrafficMin ?? alt.durationMin) }} · {{ alt.distanceKm }} km
+                          @if (alt.recomendada) {
+                            <span class="ml-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">Más rápida</span>
+                          }
+                        </span>
+                        <span class="block text-[11px] text-slate-500">
+                          {{ i === 0 ? 'Ruta principal' : 'Alternativa ' + i }}
+                          @if (alt.trafficLevel) { · tráfico {{ trafficLabel(alt.trafficLevel).toLowerCase() }} }
+                          @if (alt.eventos?.length) { · {{ alt.eventos!.length }} evento(s) }
+                        </span>
+                      </span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
           }
 
           @if (plan()) {
@@ -183,13 +227,23 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
             <p class="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{{ formError() }}</p>
           }
 
+          @if (traffic(); as t) {
+            <div class="rounded-lg border border-slate-200 px-3 py-2 text-[11.5px] text-slate-600 flex items-start gap-2">
+              <span class="w-2 h-2 rounded-full mt-1 shrink-0" [class]="t.nivel === 'congestionado' ? 'bg-red-500' : t.nivel === 'moderado' ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+              <span>
+                Tráfico estimado en Lima: <strong>{{ trafficLabel(t.nivel).toLowerCase() }}</strong> ({{ t.franja }})
+                @if (t.eventos.length) { · {{ t.eventos.length }} evento(s) activos en el mapa }
+              </span>
+            </div>
+          }
+
           <!-- Lista de rutas -->
           <div class="pt-2">
-            <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Rutas activas</p>
+            <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Rutas ({{ navRoutes.routes().length }})</p>
             @if (navRoutes.loading()) {
               <p class="text-xs text-slate-500">Cargando...</p>
             } @else if (navRoutes.routes().length === 0) {
-              <p class="text-xs text-slate-500">No hay rutas creadas aún.</p>
+              <p class="text-xs text-slate-500">No hay rutas creadas aún. Elige origen y destino arriba para crear la primera.</p>
             } @else {
               <div class="space-y-2">
                 @for (r of navRoutes.routes(); track r.id) {
@@ -207,7 +261,14 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                       {{ r.distanceKm ?? '—' }} km · {{ formatDuration(r.durationMin ?? 0) }}
                       @if (r.vehiclePlaca) { · {{ r.vehiclePlaca }} }
                     </div>
-                    @if (auth.isStaff()) {
+                    @if (r.status === 'en-curso') {
+                      <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-2">
+                        <div class="h-full bg-emerald-500 transition-all duration-700" [style.width.%]="r.progressPct"></div>
+                      </div>
+                    }
+                    @if (isSimLoop(r)) {
+                      <p class="text-[10.5px] text-violet-700">Circuito permanente de la unidad de prueba. Se controla desde el Simulador.</p>
+                    } @else if (auth.isStaff()) {
                       <div class="flex flex-wrap gap-1.5">
                         @if (r.status === 'solicitada' || r.status === 'asignada') {
                           <button type="button" class="text-[10px] font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800" (click)="setStatus(r, 'en-curso', $event)">Iniciar</button>
@@ -242,7 +303,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
     </div>
   `
 })
-export class RutasPageComponent implements OnInit, AfterViewInit {
+export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly auth = inject(AuthService);
   readonly fleet = inject(FleetService);
   readonly navRoutes = inject(NavRoutesService);
@@ -271,7 +332,10 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
   destSuggestions = signal<GeoPlace[]>([]);
   activeField = signal<'origin' | 'dest' | null>(null);
 
-  readonly plan = signal<RoutePlan | null>(null);
+  readonly plans = signal<RoutePlan[]>([]);
+  readonly selectedPlan = signal(0);
+  readonly plan = computed<RoutePlan | null>(() => this.plans()[this.selectedPlan()] ?? null);
+  readonly traffic = signal<TrafficStatus | null>(null);
   readonly planning = signal(false);
   readonly creating = signal(false);
   readonly formError = signal<string | null>(null);
@@ -281,6 +345,9 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
 
   private map: L.Map | null = null;
   private routeLine: L.Polyline | null = null;
+  private altLines: L.Polyline[] = [];
+  private trafficLayer: L.LayerGroup | null = null;
+  private poll: ReturnType<typeof setInterval> | null = null;
   private originMarker: L.CircleMarker | null = null;
   private destMarker: L.CircleMarker | null = null;
   private readonly originSearch$ = new Subject<string>();
@@ -302,7 +369,62 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
 
   async ngAfterViewInit(): Promise<void> {
     this.map = createOsmMap(this.mapEl.nativeElement, [-9.19, -75.0], 6);
+    this.trafficLayer = L.layerGroup().addTo(this.map);
     setTimeout(() => this.map?.invalidateSize(), 100);
+    void this.loadTraffic();
+    // Progreso de rutas en curso y eventos de tráfico.
+    this.poll = setInterval(() => {
+      if (document.hidden) return;
+      void this.navRoutes.load();
+      void this.loadTraffic();
+    }, 15000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.poll) clearInterval(this.poll);
+    this.map?.remove();
+    this.map = null;
+  }
+
+  private async loadTraffic(): Promise<void> {
+    const t = await this.routing.trafficStatus();
+    this.traffic.set(t);
+    if (!this.trafficLayer) return;
+    this.trafficLayer.clearLayers();
+    for (const ev of t?.eventos ?? []) {
+      const color = ev.nivel === 'bloqueo' ? '#7f1d1d' : ev.nivel === 'congestionado' ? '#dc2626' : '#f59e0b';
+      L.circle([ev.lat, ev.lng], { radius: ev.radioM, color, weight: 2, fillColor: color, fillOpacity: 0.2, dashArray: '4 4' })
+        .bindTooltip(`<strong>${ev.descripcion}</strong><br/>${ev.nivel}${ev.simulado ? ' · simulado' : ''}`)
+        .addTo(this.trafficLayer);
+    }
+  }
+
+  isSimLoop(r: NavRoute): boolean {
+    return (r.notes ?? '').startsWith('[circuito-sim]');
+  }
+
+  altColor(i: number): string {
+    return ['#2563eb', '#7c3aed', '#0d9488'][i] ?? '#64748b';
+  }
+
+  trafficLabel(level: string): string {
+    return ({ fluido: 'Fluido', moderado: 'Moderado', congestionado: 'Congestionado' } as Record<string, string>)[level] ?? level;
+  }
+
+  trafficPill(level: string): string {
+    return (
+      ({ fluido: 'bg-emerald-500/20 text-emerald-200', moderado: 'bg-amber-500/20 text-amber-200', congestionado: 'bg-red-500/25 text-red-200' } as Record<string, string>)[level] ??
+      'bg-slate-700 text-slate-200'
+    );
+  }
+
+  eventDelay(p: RoutePlan): number {
+    return (p.eventos ?? []).reduce((acc, e) => acc + e.demora_min, 0);
+  }
+
+  selectPlan(i: number): void {
+    this.selectedPlan.set(i);
+    this.drawPlans();
   }
 
   onOriginSearch(q: string): void {
@@ -382,11 +504,12 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
     this.planning.set(true);
     this.formError.set(null);
     try {
-      const p = await this.routing.planRoute(o, d);
-      this.plan.set(p);
-      this.drawPlan(p);
+      const list = await this.routing.planAlternatives(o, d);
+      this.plans.set(list);
+      this.selectedPlan.set(0);
+      this.drawPlans();
     } catch (e) {
-      this.plan.set(null);
+      this.plans.set([]);
       this.formError.set(e instanceof Error ? e.message : 'Error al calcular ruta');
     } finally {
       this.planning.set(false);
@@ -433,7 +556,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
       this.destination.set(null);
       this.originQuery = '';
       this.destQuery = '';
-      this.plan.set(null);
+      this.plans.set([]);
       this.selectedVehicleId = '';
       this.clearMapOverlays();
     } catch (e) {
@@ -470,7 +593,11 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
 
   async cancelRoute(r: NavRoute, e: Event): Promise<void> {
     e.stopPropagation();
-    await this.navRoutes.cancel(r.id);
+    try {
+      await this.navRoutes.cancel(r.id);
+    } catch (err) {
+      this.formError.set(err instanceof Error ? err.message : 'Error');
+    }
   }
 
   async deleteRoute(r: NavRoute, e: Event): Promise<void> {
@@ -487,12 +614,29 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
     }
   }
 
+  /** Dibuja todas las alternativas; la seleccionada encima y resaltada. */
+  private drawPlans(): void {
+    const list = this.plans();
+    const sel = list[this.selectedPlan()];
+    if (!this.map || !sel) return;
+    this.drawPlan(sel);
+    list.forEach((alt, i) => {
+      if (i === this.selectedPlan() || !this.map) return;
+      const line = L.polyline(alt.coordinates, { color: this.altColor(i), weight: 4, opacity: 0.45, dashArray: '6 6' })
+        .bindTooltip(`Alternativa: ${alt.distanceKm} km · ${this.formatDuration(alt.durationTrafficMin ?? alt.durationMin)}`)
+        .on('click', () => this.selectPlan(i))
+        .addTo(this.map);
+      line.bringToBack();
+      this.altLines.push(line);
+    });
+  }
+
   private drawPlan(p: RoutePlan): void {
     if (!this.map) return;
     this.clearMapOverlays();
 
     this.routeLine = L.polyline(p.coordinates, {
-      color: '#2563eb',
+      color: this.altColor(this.plan() === p ? this.selectedPlan() : 0),
       weight: 5,
       opacity: 0.85
     }).addTo(this.map);
@@ -528,6 +672,8 @@ export class RutasPageComponent implements OnInit, AfterViewInit {
   }
 
   private clearMapOverlays(): void {
+    this.altLines.forEach((l) => l.remove());
+    this.altLines = [];
     this.routeLine?.remove();
     this.originMarker?.remove();
     this.destMarker?.remove();

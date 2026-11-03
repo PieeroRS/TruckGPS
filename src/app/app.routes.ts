@@ -68,6 +68,12 @@ export const routes: Routes = [
           import('./features/mi-ubicacion/mi-ubicacion-page.component').then((m) => m.MiUbicacionPageComponent)
       },
       {
+        path: 'simulador',
+        canActivate: [() => import('./auth/supervisor.guard').then((m) => m.supervisorGuard)],
+        loadComponent: () =>
+          import('./features/simulador/simulador-page.component').then((m) => m.SimuladorPageComponent)
+      },
+      {
         path: 'equipo',
         canActivate: [() => import('./auth/supervisor.guard').then((m) => m.supervisorGuard)],
         loadComponent: () =>
