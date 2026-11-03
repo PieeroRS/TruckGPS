@@ -142,9 +142,9 @@ const ESCENARIO_LABEL: Record<string, string> = {
         </div>
 
         <!-- Mapa -->
-        <div class="xl:col-span-8 space-y-5">
+        <div class="order-first xl:order-none xl:col-span-8 space-y-5">
           <div class="card overflow-hidden">
-            <div #mapEl class="h-[420px] w-full"></div>
+            <div #mapEl class="h-[45dvh] min-h-[280px] xl:h-[420px] w-full"></div>
             <div class="px-4 py-2.5 border-t border-slate-200/80 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
               <span class="flex items-center gap-1.5"><span class="w-4 h-0.5 bg-blue-600"></span>Ruta asignada</span>
               <span class="flex items-center gap-1.5"><span class="w-4 h-0.5 bg-violet-600"></span>Tramo recalculado / alterno</span>

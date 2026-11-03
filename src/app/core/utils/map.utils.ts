@@ -46,7 +46,7 @@ function ageText(s: number): string {
 /** Texto de calidad del dato: "En vivo · ±8 m · hace 3 s", "Último reporte hace 2 h", "Sin GPS". */
 export function positionLabel(v: Vehicle): string {
   const age = positionAgeSec(v);
-  if (age === null) return 'Sin reportes GPS · posición de referencia';
+  if (age === null) return 'Sin GPS · posición de referencia';
   const acc = v.precisionM != null ? ` · ±${v.precisionM >= 1000 ? (v.precisionM / 1000).toFixed(1) + ' km' : v.precisionM + ' m'}` : '';
   return (age <= 60 ? 'En vivo' : 'Último reporte') + acc + ' · ' + ageText(age);
 }

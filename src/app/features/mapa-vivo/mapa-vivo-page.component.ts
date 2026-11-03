@@ -56,7 +56,7 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
         <!-- ═══════════ PANEL LATERAL ═══════════ -->
-        <aside class="lg:col-span-4 xl:col-span-3 card flex flex-col overflow-hidden anim-in" style="max-height: calc(100vh - 9rem)">
+        <aside class="live-list lg:col-span-4 xl:col-span-3 card flex flex-col overflow-hidden anim-in">
 
           <div class="p-4 border-b border-slate-200/80">
             <div class="flex items-start justify-between gap-2 mb-3.5">
@@ -170,7 +170,7 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
                        [style.width.%]="speedPct(v.velocidad)"></div>
                 </div>
 
-                <div class="flex items-center justify-between gap-2 text-[10.5px]">
+                <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10.5px]">
                   <span class="font-mono tnum text-slate-400">{{ v.lat.toFixed(5) }}, {{ v.lng.toFixed(5) }}</span>
                   <span class="truncate" [class]="posClass(v)">{{ posLabel(v) }}</span>
                 </div>
@@ -213,7 +213,8 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
         </aside>
 
         <!-- ═══════════ MAPA ═══════════ -->
-        <div class="lg:col-span-8 xl:col-span-9 card overflow-hidden relative anim-in" style="animation-delay: 90ms">
+        <!-- En el celular el mapa va primero y la lista debajo. -->
+        <div class="order-first lg:order-none lg:col-span-8 xl:col-span-9 card overflow-hidden relative anim-in" style="animation-delay: 90ms">
 
           @if (fleet.loadError()) {
             <div class="absolute top-3 left-3 right-3 z-[1000] flex items-start gap-2 rounded-lg bg-red-50 ring-1 ring-red-200 text-red-700 text-[12.5px] p-3 msg-in">
@@ -257,7 +258,7 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
             </div>
           }
 
-          <div #mapEl class="w-full" style="height: calc(100vh - 9rem); min-height: 480px"></div>
+          <div #mapEl class="live-map w-full"></div>
         </div>
       </div>
     </div>
