@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import * as L from 'leaflet';
 import { FormsModule } from '@angular/forms';
 import {
   AlertCircle,
@@ -14,7 +15,8 @@ import {
   User
 } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
-import { LocationTrackingService, VehicleOption } from '../../core/services/location-tracking.service';
+import { LocationTrackingService, VehicleOption, accuracyQuality } from '../../core/services/location-tracking.service';
+import { createOsmMap } from '../../core/utils/map.utils';
 import { LayoutService } from '../../core/services/layout.service';
 
 @Component({
@@ -113,10 +115,43 @@ import { LayoutService } from '../../core/services/layout.service';
                 <div class="text-sm font-semibold text-slate-900">{{ lastSyncLabel() }}</div>
               </div>
             </div>
+            <div #miniMap class="h-56 w-full rounded-lg overflow-hidden ring-1 ring-slate-200 bg-slate-100"></div>
+
+            @if (tracking.accuracy() !== null) {
+              <div class="rounded-lg px-3 py-2.5 ring-1" [class]="qualityBox()">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[12px] font-semibold">{{ qualityLabel() }}</span>
+                  <span class="text-[12px] font-mono tnum font-semibold">± {{ accuracyLabel() }}</span>
+                </div>
+                @if (quality() === 'aproximada' || quality() === 'muy_aproximada') {
+                  <p class="text-[11.5px] mt-1.5 leading-relaxed">
+                    Este equipo está ubicándose por WiFi o por la red, no por GPS, y puede marcar otro lugar.
+                    Para ubicación exacta como en Google Maps:
+                  </p>
+                  <ul class="text-[11.5px] mt-1 list-disc pl-4 space-y-0.5 leading-relaxed">
+                    <li>Usa el <strong>celular</strong> (una PC o laptop no tiene GPS).</li>
+                    <li>Android: Ajustes → Ubicación → activa <strong>Precisión de ubicación de Google</strong>, y en el permiso del navegador elige <strong>Precisa</strong>.</li>
+                    <li>iPhone: Ajustes → Privacidad → Localización → Safari/Chrome → activa <strong>Ubicación exacta</strong>.</li>
+                    <li>Cerca de una ventana o al aire libre el GPS fija en segundos.</li>
+                  </ul>
+                } @else {
+                  <p class="text-[11.5px] mt-1 leading-relaxed">La posición que ve el centro de control es la de este equipo, con ese margen.</p>
+                }
+                @if (tracking.lastIgnored()) {
+                  <p class="text-[11px] mt-1.5">El servidor mantuvo la lectura anterior porque la nueva era mucho menos precisa.</p>
+                }
+              </div>
+            }
+
             @if (tracking.lat() !== null && tracking.lng() !== null) {
-              <p class="text-[11px] text-slate-500 font-mono text-center">
-                {{ tracking.lat()!.toFixed(5) }}, {{ tracking.lng()!.toFixed(5) }}
-              </p>
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-[11px] text-slate-500 font-mono">
+                  {{ tracking.lat()!.toFixed(6) }}, {{ tracking.lng()!.toFixed(6) }}
+                </p>
+                <button type="button" class="text-[11.5px] font-semibold text-blue-700 hover:text-blue-900 disabled:opacity-50 inline-flex items-center gap-1" [disabled]="refreshing()" (click)="precisar()">
+                  <lucide-icon [img]="locateIcon" [size]="12" [class.animate-pulse]="refreshing()" />Precisar ubicación
+                </button>
+              </div>
             }
             <div class="flex flex-wrap items-center justify-center gap-2 text-[11px]">
               @if (tracking.background()) {
@@ -216,6 +251,86 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
 
   selectedVehicleId = '';
 
+  readonly refreshing = signal(false);
+  readonly quality = computed(() => accuracyQuality(this.tracking.accuracy()));
+
+  /** El mapa existe sólo mientras el GPS está activo (el contenedor está dentro del @if). */
+  @ViewChild('miniMap') set miniMapEl(el: ElementRef<HTMLDivElement> | undefined) {
+    if (!el) {
+      this.map?.remove();
+      this.map = null;
+      this.dot = null;
+      this.circle = null;
+      return;
+    }
+    if (this.map) return;
+    this.map = createOsmMap(el.nativeElement, [this.tracking.lat() ?? -12.0464, this.tracking.lng() ?? -77.0428], 17);
+    setTimeout(() => {
+      this.map?.invalidateSize();
+      this.drawMe();
+    }, 50);
+  }
+
+  private map: L.Map | null = null;
+  private dot: L.CircleMarker | null = null;
+  private circle: L.Circle | null = null;
+
+  constructor() {
+    effect(() => {
+      this.tracking.lat();
+      this.tracking.lng();
+      this.tracking.accuracy();
+      this.drawMe();
+    });
+  }
+
+  /** Punto azul con su círculo de precisión, como Google Maps. */
+  private drawMe(): void {
+    const lat = this.tracking.lat();
+    const lng = this.tracking.lng();
+    if (!this.map || lat === null || lng === null) return;
+    const acc = this.tracking.accuracy() ?? 0;
+    const pos: L.LatLngTuple = [lat, lng];
+    if (!this.circle) {
+      this.circle = L.circle(pos, { radius: acc, color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.15 }).addTo(this.map);
+      this.dot = L.circleMarker(pos, { radius: 7, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(this.map);
+    } else {
+      this.circle.setLatLng(pos).setRadius(acc);
+      this.dot!.setLatLng(pos);
+    }
+    if (acc > 150) this.map.fitBounds(this.circle.getBounds(), { maxZoom: 17 });
+    else this.map.setView(pos, Math.max(this.map.getZoom(), 16));
+  }
+
+  qualityLabel(): string {
+    return (
+      {
+        gps: 'Precisión GPS',
+        buena: 'Precisión buena',
+        aproximada: 'Ubicación aproximada',
+        muy_aproximada: 'Ubicación muy aproximada (por la red/IP)'
+      } as Record<string, string>
+    )[this.quality() ?? ''] ?? '';
+  }
+
+  qualityBox(): string {
+    const q = this.quality();
+    if (q === 'gps' || q === 'buena') return 'bg-emerald-50 text-emerald-800 ring-emerald-200';
+    if (q === 'aproximada') return 'bg-amber-50 text-amber-800 ring-amber-200';
+    return 'bg-red-50 text-red-800 ring-red-200';
+  }
+
+  accuracyLabel(): string {
+    const m = this.tracking.accuracy() ?? 0;
+    return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+  }
+
+  async precisar(): Promise<void> {
+    this.refreshing.set(true);
+    await this.tracking.refreshNow();
+    this.refreshing.set(false);
+  }
+
   ngOnInit(): void {
     this.layout.setPage('Mi Ubicación', 'Comparte tu posición en vivo con el centro de control');
     void this.loadVehicles();
@@ -224,6 +339,8 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     // El tracking sigue activo al salir de la página (conductor en ruta).
+    this.map?.remove();
+    this.map = null;
   }
 
   displayName(): string {

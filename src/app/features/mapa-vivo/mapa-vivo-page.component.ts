@@ -40,6 +40,8 @@ import {
   bindVehicleTooltip,
   buildTruckIcon,
   createOsmMap,
+  isLive,
+  positionLabel,
   vehicleStatusInfo
 } from '../../core/utils/map.utils';
 
@@ -136,7 +138,7 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="w-2 h-2 rounded-full shrink-0 ring-2 ring-white" [class]="statusInfo(v.estado).dot"></span>
                     <strong class="text-[13.5px] font-semibold text-slate-900 tracking-tight truncate">{{ v.placa }}</strong>
-                    @if (v.velocidad > 0) {
+                    @if (live(v)) {
                       <span class="relative flex w-1.5 h-1.5 shrink-0" title="GPS en vivo">
                         <span class="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
                         <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -168,7 +170,10 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
                        [style.width.%]="speedPct(v.velocidad)"></div>
                 </div>
 
-                <div class="text-[10.5px] text-slate-400 font-mono tnum">{{ v.lat.toFixed(4) }}, {{ v.lng.toFixed(4) }}</div>
+                <div class="flex items-center justify-between gap-2 text-[10.5px]">
+                  <span class="font-mono tnum text-slate-400">{{ v.lat.toFixed(5) }}, {{ v.lng.toFixed(5) }}</span>
+                  <span class="truncate" [class]="posClass(v)">{{ posLabel(v) }}</span>
+                </div>
               </button>
             } @empty {
               <div class="py-14 text-center">
@@ -298,6 +303,8 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private map: L.Map | null = null;
   private readonly markers = new Map<string, L.Marker>();
+  /** Círculo de precisión por unidad (como el halo azul de Google Maps). */
+  private readonly accCircles = new Map<string, L.Circle>();
   private unsubscribeRealtime: (() => void) | null = null;
   private stopPolling: (() => void) | null = null;
   private didFitBounds = false;
@@ -387,6 +394,20 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     return 'bg-emerald-500';
   }
 
+  live(v: Vehicle): boolean {
+    return isLive(v);
+  }
+
+  posLabel(v: Vehicle): string {
+    return positionLabel(v);
+  }
+
+  posClass(v: Vehicle): string {
+    if (!isLive(v)) return 'text-slate-400';
+    const p = v.precisionM ?? 0;
+    return p <= 25 ? 'text-emerald-600 font-medium' : p <= 100 ? 'text-emerald-600' : 'text-amber-600 font-medium';
+  }
+
   focusVehicle(v: Vehicle): void {
     if (!this.map) return;
     this.selectedPlaca.set(v.placa);
@@ -460,6 +481,24 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
         marker.remove();
         this.markers.delete(placa);
       }
+    }
+    for (const [placa, c] of this.accCircles) {
+      const v = vehicles.find((x) => x.placa === placa);
+      if (!v || !isLive(v) || (v.precisionM ?? 0) < 15) {
+        c.remove();
+        this.accCircles.delete(placa);
+      }
+    }
+    for (const v of vehicles) {
+      if (!isLive(v) || (v.precisionM ?? 0) < 15) continue;
+      const c = this.accCircles.get(v.placa);
+      const color = (v.precisionM ?? 0) > 100 ? '#d97706' : '#2563eb';
+      if (c) c.setLatLng([v.lat, v.lng]).setRadius(v.precisionM!).setStyle({ color, fillColor: color });
+      else
+        this.accCircles.set(
+          v.placa,
+          L.circle([v.lat, v.lng], { radius: v.precisionM!, color, weight: 1, fillColor: color, fillOpacity: 0.12, interactive: false }).addTo(this.map)
+        );
     }
 
     for (const v of vehicles) {

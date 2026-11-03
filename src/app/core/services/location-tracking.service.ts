@@ -15,9 +15,23 @@ export interface VehicleOption {
 }
 
 const STORAGE_KEY = 'truckgps_location_tracking';
-const MIN_SEND_MS = 10_000;
-const MIN_MOVE_M = 25;
-const HEARTBEAT_MS = 20_000;
+/** Envío mínimo entre reportes en movimiento (como Google: casi en tiempo real). */
+const MIN_SEND_MS = 3_000;
+/** Detenido: un reporte cada este tiempo aunque no cambie nada. */
+const HEARTBEAT_MS = 15_000;
+/** Metros mínimos de movimiento real para reenviar antes del heartbeat. */
+const MIN_MOVE_M = 5;
+
+export type AccuracyQuality = 'gps' | 'buena' | 'aproximada' | 'muy_aproximada';
+
+/** Clasifica coords.accuracy: ≤ 25 m suele ser GPS; > 100 m es WiFi/antena; > 1 km es por IP. */
+export function accuracyQuality(m: number | null | undefined): AccuracyQuality | null {
+  if (m == null) return null;
+  if (m <= 25) return 'gps';
+  if (m <= 100) return 'buena';
+  if (m <= 1000) return 'aproximada';
+  return 'muy_aproximada';
+}
 
 interface PersistedState {
   vehicleId: string;
@@ -36,6 +50,10 @@ export class LocationTrackingService {
   readonly lat = signal<number | null>(null);
   readonly lng = signal<number | null>(null);
   readonly speedKmh = signal(0);
+  /** Radio de incertidumbre (m) de la última lectura: el "círculo azul" de Google Maps. */
+  readonly accuracy = signal<number | null>(null);
+  /** true si el último envío fue descartado por el servidor por ser mucho peor que el anterior. */
+  readonly lastIgnored = signal(false);
   readonly lastSync = signal<Date | null>(null);
   readonly error = signal<string | null>(null);
   readonly syncing = signal(false);
@@ -46,6 +64,8 @@ export class LocationTrackingService {
   private lastSentAt = 0;
   private lastSentLat: number | null = null;
   private lastSentLng: number | null = null;
+  private lastSentAcc: number | null = null;
+  private lastPosAt = 0;
   private wakeLock: WakeLockSentinel | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private visibilityHandler: (() => void) | null = null;
@@ -181,7 +201,8 @@ export class LocationTrackingService {
           this.error.set(msg);
           finish({ ok: false, error: msg });
         },
-        { enableHighAccuracy: true, maximumAge: 8_000, timeout: 25_000 }
+        // maximumAge 0: nunca reutilizar una posición en caché (la causa típica de "estoy en otro lado").
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 }
       );
 
       setTimeout(() => {
@@ -195,35 +216,75 @@ export class LocationTrackingService {
   private async onPosition(pos: GeolocationPosition, force: boolean): Promise<void> {
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;
-    const speed = Math.max(0, Math.round((pos.coords.speed ?? 0) * 3.6));
+    const acc = Math.round(pos.coords.accuracy);
+    const now = Date.now();
+
+    // Lecturas viejas que el navegador entrega fuera de orden.
+    if (pos.timestamp && pos.timestamp < this.lastPosAt) return;
+
+    // Con un GPS bueno reciente, ignorar lecturas mucho peores (el celular alterna GPS y WiFi/antena).
+    const prevAcc = this.accuracy();
+    if (!force && prevAcc !== null && now - this.lastPosAt < 30_000 && acc > Math.max(100, prevAcc * 3)) return;
+    this.lastPosAt = pos.timestamp || now;
+
+    // Velocidad del GPS; si el equipo no la da, se calcula con el desplazamiento.
+    let speed = pos.coords.speed != null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : null;
+    if (speed === null && this.lastSentLat !== null && this.lastSentLng !== null && this.lastSentAt) {
+      const d = haversineM(this.lastSentLat, this.lastSentLng, lat, lng);
+      const dt = (now - this.lastSentAt) / 1000;
+      speed = dt > 0 && d > Math.max(acc, 10) ? Math.min(180, Math.round((d / dt) * 3.6)) : 0;
+    }
 
     this.lat.set(lat);
     this.lng.set(lng);
-    this.speedKmh.set(speed);
+    this.accuracy.set(acc);
+    this.speedKmh.set(speed ?? 0);
 
-    const now = Date.now();
     const isFirst = this.lastSentAt === 0;
-    const moved =
-      this.lastSentLat === null ||
-      this.lastSentLng === null ||
-      haversineM(this.lastSentLat, this.lastSentLng, lat, lng) >= MIN_MOVE_M;
+    const dist =
+      this.lastSentLat === null || this.lastSentLng === null ? Infinity : haversineM(this.lastSentLat, this.lastSentLng, lat, lng);
+    // Moverse "de verdad": más que el ruido de la propia medición.
+    const moved = dist >= Math.max(MIN_MOVE_M, acc / 2);
+    const improved = this.lastSentAcc !== null && acc < this.lastSentAcc * 0.6;
+    const elapsed = now - this.lastSentAt;
 
-    if (!force && !isFirst && now - this.lastSentAt < MIN_SEND_MS && !moved) return;
+    if (!force && !isFirst && !improved && (elapsed < MIN_SEND_MS || (!moved && elapsed < HEARTBEAT_MS))) return;
 
-    await this.sendPosition(lat, lng, speed);
+    await this.sendPosition(lat, lng, speed ?? 0, acc);
   }
 
-  private async sendPosition(lat: number, lng: number, speed: number): Promise<void> {
+  /** Pide una lectura nueva al instante (botón "Precisar ubicación"). */
+  refreshNow(): Promise<void> {
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          await this.onPosition(pos, true);
+          resolve();
+        },
+        () => resolve(),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 }
+      );
+    });
+  }
+
+  private async sendPosition(lat: number, lng: number, speed: number, acc: number | null = this.accuracy()): Promise<void> {
     const vid = this.vehicleId();
     if (!vid) return;
 
     this.syncing.set(true);
     try {
-      await this.api.post(`/vehicles/${vid}/position`, { lat, lng, velocidad: speed });
+      const res = await this.api.post<{ ignorada?: boolean }>(`/vehicles/${vid}/position`, {
+        lat,
+        lng,
+        velocidad: speed,
+        precision_m: acc
+      });
+      this.lastIgnored.set(!!res?.ignorada);
       this.error.set(null);
       this.lastSentAt = Date.now();
       this.lastSentLat = lat;
       this.lastSentLng = lng;
+      this.lastSentAcc = acc;
       this.lastSync.set(new Date());
     } catch (e) {
       this.error.set(apiErrorMessage(e, 'Error al enviar ubicación'));
@@ -254,11 +315,15 @@ export class LocationTrackingService {
     this.lat.set(null);
     this.lng.set(null);
     this.speedKmh.set(0);
+    this.accuracy.set(null);
+    this.lastIgnored.set(false);
     this.lastSync.set(null);
     this.background.set(false);
     this.lastSentAt = 0;
     this.lastSentLat = null;
     this.lastSentLng = null;
+    this.lastSentAcc = null;
+    this.lastPosAt = 0;
     if (clearStorage) localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -321,16 +386,16 @@ export class LocationTrackingService {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       if (!this.active()) return;
-      const lat = this.lat();
-      const lng = this.lng();
-      if (lat != null && lng != null) {
-        void this.sendPosition(lat, lng, this.speedKmh());
-        return;
-      }
+      // Si watchPosition no trajo nada nuevo (equipo quieto), se pide una lectura fresca.
+      if (Date.now() - this.lastSentAt < HEARTBEAT_MS - 1000) return;
       navigator.geolocation.getCurrentPosition(
         (pos) => void this.onPosition(pos, true),
-        () => undefined,
-        { enableHighAccuracy: true, maximumAge: 15_000, timeout: 12_000 }
+        () => {
+          const lat = this.lat();
+          const lng = this.lng();
+          if (lat != null && lng != null) void this.sendPosition(lat, lng, this.speedKmh());
+        },
+        { enableHighAccuracy: true, maximumAge: 5_000, timeout: 12_000 }
       );
     }, HEARTBEAT_MS);
   }
