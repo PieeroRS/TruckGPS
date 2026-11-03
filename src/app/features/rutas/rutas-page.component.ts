@@ -16,12 +16,16 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as L from 'leaflet';
 import {
   ArrowLeftRight,
+  Crosshair,
   Loader2,
+  LocateFixed,
   LucideAngularModule,
   MapPin,
+  MousePointerClick,
   Navigation,
   Route,
-  Truck
+  Truck,
+  X
 } from 'lucide-angular';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
@@ -68,16 +72,35 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
               <span class="absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white z-10"></span>
               <input
                 type="text"
-                class="input pl-9 text-sm"
-                placeholder="¿Desde dónde?"
+                class="input pl-9 text-sm text-ellipsis"
+                style="padding-right: 5.5rem"
+                [placeholder]="locating() ? 'Buscando tu ubicación…' : 'Desde: tu ubicación o dirección'"
                 [(ngModel)]="originQuery"
                 (ngModelChange)="onOriginSearch($event)"
                 (focus)="activeField.set('origin')"
+                (blur)="closeSuggestionsSoon('origin')"
               />
-              @if (originSuggestions().length && activeField() === 'origin') {
-                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-40 overflow-y-auto">
+              <button
+                type="button"
+                class="absolute right-12 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full flex items-center justify-center text-blue-600 bg-white hover:bg-blue-50 disabled:opacity-50"
+                title="Usar mi ubicación actual"
+                aria-label="Usar mi ubicación actual"
+                [disabled]="locating()"
+                (mousedown)="$event.preventDefault()"
+                (click)="useMyLocation()"
+              >
+                <lucide-icon [img]="locateIcon" [size]="15" [class.animate-pulse]="locating()" />
+              </button>
+              @if (activeField() === 'origin') {
+                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-56 overflow-y-auto">
+                  <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 flex items-center gap-2" (mousedown)="$event.preventDefault()" (click)="useMyLocation()">
+                    <lucide-icon [img]="locateIcon" [size]="14" /> Usar mi ubicación actual
+                  </button>
+                  <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100" (mousedown)="$event.preventDefault()" (click)="startMapPick('origin')">
+                    <lucide-icon [img]="pickIcon" [size]="14" /> Elegir el punto en el mapa
+                  </button>
                   @for (p of originSuggestions(); track p.name) {
-                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (click)="pickOrigin(p)">{{ p.name }}</button>
+                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (mousedown)="$event.preventDefault()" (click)="pickOrigin(p)">{{ p.name }}</button>
                   }
                 </div>
               }
@@ -96,21 +119,35 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
               <span class="absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white z-10"></span>
               <input
                 type="text"
-                class="input pl-9 text-sm"
+                class="input pl-9 pr-12 text-sm"
                 placeholder="¿A dónde vas?"
                 [(ngModel)]="destQuery"
                 (ngModelChange)="onDestSearch($event)"
                 (focus)="activeField.set('dest')"
+                (blur)="closeSuggestionsSoon('dest')"
               />
-              @if (destSuggestions().length && activeField() === 'dest') {
-                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-40 overflow-y-auto">
+              @if (activeField() === 'dest') {
+                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-56 overflow-y-auto">
+                  <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2" [class.border-b]="destSuggestions().length" [class.border-slate-100]="destSuggestions().length" (mousedown)="$event.preventDefault()" (click)="startMapPick('dest')">
+                    <lucide-icon [img]="pickIcon" [size]="14" /> Elegir el punto en el mapa
+                  </button>
                   @for (p of destSuggestions(); track p.name) {
-                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (click)="pickDest(p)">{{ p.name }}</button>
+                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (mousedown)="$event.preventDefault()" (click)="pickDest(p)">{{ p.name }}</button>
                   }
                 </div>
               }
             </div>
           </div>
+
+          @if (originInfo(); as info) {
+            <p class="text-[11px] -mt-1 flex items-start gap-1.5" [class]="info.warn ? 'text-amber-700' : 'text-slate-500'">
+              <lucide-icon [img]="crosshairIcon" [size]="12" class="mt-0.5 shrink-0" />
+              <span>{{ info.text }}</span>
+            </p>
+          }
+          @if (plan()) {
+            <p class="text-[11px] text-slate-500 -mt-1">Puedes arrastrar los puntos verde y rojo en el mapa para ajustar el origen o el destino.</p>
+          }
 
           <!-- Ciudades rápidas -->
           <div>
@@ -292,8 +329,17 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
 
       <!-- Mapa -->
       <div class="flex-1 relative min-h-[220px] lg:min-h-0">
-        <div #mapEl class="absolute inset-0"></div>
-        @if (!plan() && !selectedRouteId()) {
+        <div #mapEl class="absolute inset-0" [class.cursor-crosshair]="pickMode()"></div>
+        @if (pickMode(); as mode) {
+          <div class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900 text-white px-4 py-2 rounded-full text-xs shadow-lg flex items-center gap-2">
+            <lucide-icon [img]="pickIcon" [size]="14" />
+            Toca el mapa para elegir el {{ mode === 'origin' ? 'origen' : 'destino' }}
+            <button type="button" class="ml-1 p-0.5 rounded-full hover:bg-white/20" aria-label="Cancelar" (click)="pickMode.set(null)">
+              <lucide-icon [img]="xIcon" [size]="13" />
+            </button>
+          </div>
+        }
+        @if (!plan() && !selectedRouteId() && !pickMode()) {
           <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur px-4 py-2 rounded-full text-xs text-slate-600 shadow-lg border border-slate-200 flex items-center gap-2">
             <lucide-icon [img]="mapPinIcon" [size]="14" class="text-blue-600" />
             Elige origen y destino para ver la ruta
@@ -319,6 +365,15 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly navIcon = Navigation;
   readonly truckIcon = Truck;
   readonly mapPinIcon = MapPin;
+  readonly locateIcon = LocateFixed;
+  readonly pickIcon = MousePointerClick;
+  readonly crosshairIcon = Crosshair;
+  readonly xIcon = X;
+
+  readonly locating = signal(false);
+  readonly pickMode = signal<'origin' | 'dest' | null>(null);
+  readonly originInfo = signal<{ text: string; warn: boolean } | null>(null);
+  private blurTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly quickCities = PERU_CITIES;
   readonly statusLabelFn = statusLabel;
@@ -348,8 +403,9 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private altLines: L.Polyline[] = [];
   private trafficLayer: L.LayerGroup | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
-  private originMarker: L.CircleMarker | null = null;
-  private destMarker: L.CircleMarker | null = null;
+  private originMarker: L.Marker | null = null;
+  private destMarker: L.Marker | null = null;
+  private myLocationLayer: L.LayerGroup | null = null;
   private readonly originSearch$ = new Subject<string>();
   private readonly destSearch$ = new Subject<string>();
 
@@ -370,7 +426,11 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   async ngAfterViewInit(): Promise<void> {
     this.map = createOsmMap(this.mapEl.nativeElement, [-9.19, -75.0], 6);
     this.trafficLayer = L.layerGroup().addTo(this.map);
+    this.myLocationLayer = L.layerGroup().addTo(this.map);
+    this.map.on('click', (e: L.LeafletMouseEvent) => void this.onMapClick(e.latlng.lat, e.latlng.lng));
     setTimeout(() => this.map?.invalidateSize(), 100);
+    // «Desde» parte de tu ubicación actual, como en las apps de transporte.
+    void this.autoLocateOrigin();
     void this.loadTraffic();
     // Progreso de rutas en curso y eventos de tráfico.
     this.poll = setInterval(() => {
@@ -396,6 +456,132 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
       L.circle([ev.lat, ev.lng], { radius: ev.radioM, color, weight: 2, fillColor: color, fillOpacity: 0.2, dashArray: '4 4' })
         .bindTooltip(`<strong>${ev.descripcion}</strong><br/>${ev.nivel}${ev.simulado ? ' · simulado' : ''}`)
         .addTo(this.trafficLayer);
+    }
+  }
+
+  /** Si el permiso ya está concedido (o se puede pedir), el origen se llena solo con tu ubicación. */
+  private async autoLocateOrigin(): Promise<void> {
+    if (this.origin()) return;
+    try {
+      const perm = await navigator.permissions?.query({ name: 'geolocation' as PermissionName });
+      if (perm && perm.state === 'denied') {
+        this.originInfo.set({ text: 'La ubicación está bloqueada en este navegador: escribe el origen o elígelo en el mapa.', warn: true });
+        return;
+      }
+    } catch {
+      /* Safari antiguo sin Permissions API: se intenta directo */
+    }
+    await this.useMyLocation(true);
+  }
+
+  async useMyLocation(silent = false): Promise<void> {
+    this.activeField.set(null);
+    this.locating.set(true);
+    if (!silent) this.originInfo.set(null);
+    try {
+      const pos = await this.routing.currentPosition();
+      const calle = await this.routing.reverseGeocode(pos.lat, pos.lng);
+      const place: GeoPlace = { name: `Mi ubicación · ${calle}`, lat: pos.lat, lng: pos.lng };
+      this.origin.set(place);
+      this.originQuery = place.name;
+      this.originSuggestions.set([]);
+      const acc = pos.accuracy >= 1000 ? `${(pos.accuracy / 1000).toFixed(1)} km` : `${pos.accuracy} m`;
+      this.originInfo.set(
+        pos.accuracy > 100
+          ? { text: `Ubicación aproximada (±${acc}). Si no es tu punto exacto, arrastra el marcador verde o elígelo en el mapa.`, warn: true }
+          : { text: `Ubicación actual con precisión de ±${acc}.`, warn: false }
+      );
+      this.drawMyLocation(pos.lat, pos.lng, pos.accuracy);
+      if (this.destination()) await this.tryPlan();
+    } catch (e) {
+      if (!silent) this.originInfo.set({ text: e instanceof Error ? e.message : 'No se pudo obtener tu ubicación.', warn: true });
+    } finally {
+      this.locating.set(false);
+    }
+  }
+
+  private drawMyLocation(lat: number, lng: number, acc: number): void {
+    if (!this.map || !this.myLocationLayer) return;
+    this.myLocationLayer.clearLayers();
+    L.circle([lat, lng], { radius: acc, color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.12, interactive: false }).addTo(this.myLocationLayer);
+    if (!this.plan()) {
+      this.map.setView([lat, lng], acc > 1000 ? 13 : 15);
+      this.drawPins();
+    }
+  }
+
+  startMapPick(field: 'origin' | 'dest'): void {
+    this.activeField.set(null);
+    this.pickMode.set(field);
+    const o = this.origin();
+    if (this.map && o && this.map.getZoom() < 12) this.map.setView([o.lat, o.lng], 14);
+  }
+
+  private async onMapClick(lat: number, lng: number): Promise<void> {
+    const mode = this.pickMode();
+    if (!mode) return;
+    this.pickMode.set(null);
+    await this.setPoint(mode, lat, lng);
+  }
+
+  /** Fija origen o destino en un punto exacto (clic en el mapa o marcador arrastrado). */
+  private async setPoint(field: 'origin' | 'dest', lat: number, lng: number): Promise<void> {
+    const name = await this.routing.reverseGeocode(lat, lng);
+    const place: GeoPlace = { name, lat, lng };
+    if (field === 'origin') {
+      this.origin.set(place);
+      this.originQuery = name;
+      this.originInfo.set({ text: 'Origen elegido en el mapa.', warn: false });
+    } else {
+      this.destination.set(place);
+      this.destQuery = name;
+    }
+    if (this.origin() && this.destination()) await this.tryPlan();
+    else this.drawPins();
+  }
+
+  closeSuggestionsSoon(field: 'origin' | 'dest'): void {
+    if (this.blurTimer) clearTimeout(this.blurTimer);
+    // Sólo se cierra si el foco no pasó al otro campo.
+    this.blurTimer = setTimeout(() => {
+      if (this.activeField() === field) this.activeField.set(null);
+    }, 150);
+  }
+
+  private pinIcon(color: string, label: string): L.DivIcon {
+    return L.divIcon({
+      className: '',
+      html: `<div title="${label}" style="width:22px;height:22px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 6px rgba(15,23,42,.35);cursor:grab"></div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11]
+    });
+  }
+
+  /** Marcadores de origen/destino arrastrables para ajustar el punto a mano. */
+  private drawPins(): void {
+    if (!this.map) return;
+    this.originMarker?.remove();
+    this.destMarker?.remove();
+    this.originMarker = this.destMarker = null;
+    const o = this.origin();
+    const d = this.destination();
+    if (o) {
+      this.originMarker = L.marker([o.lat, o.lng], { icon: this.pinIcon('#10b981', 'Origen'), draggable: true, zIndexOffset: 500 })
+        .bindTooltip('Origen · arrástralo para ajustar')
+        .on('dragend', (e) => {
+          const ll = (e.target as L.Marker).getLatLng();
+          void this.setPoint('origin', ll.lat, ll.lng);
+        })
+        .addTo(this.map);
+    }
+    if (d) {
+      this.destMarker = L.marker([d.lat, d.lng], { icon: this.pinIcon('#ef4444', 'Destino'), draggable: true, zIndexOffset: 500 })
+        .bindTooltip('Destino · arrástralo para ajustar')
+        .on('dragend', (e) => {
+          const ll = (e.target as L.Marker).getLatLng();
+          void this.setPoint('dest', ll.lat, ll.lng);
+        })
+        .addTo(this.map);
     }
   }
 
@@ -461,6 +647,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   pickOrigin(p: GeoPlace): void {
     this.origin.set(p);
+    this.originInfo.set(null);
     this.originQuery = p.name;
     this.originSuggestions.set([]);
     this.activeField.set(null);
@@ -499,7 +686,13 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   async tryPlan(): Promise<void> {
     const o = this.origin();
     const d = this.destination();
-    if (!o || !d) return;
+    if (!o || !d) {
+      // Falta un punto: se muestra el que ya está para que el usuario lo vea y pueda ajustarlo.
+      this.drawPins();
+      const one = o ?? d;
+      if (one && this.map) this.map.setView([one.lat, one.lng], Math.max(this.map.getZoom(), 13));
+      return;
+    }
 
     this.planning.set(true);
     this.formError.set(null);
@@ -559,6 +752,8 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
       this.plans.set([]);
       this.selectedVehicleId = '';
       this.clearMapOverlays();
+      // La siguiente ruta vuelve a partir de tu ubicación actual.
+      void this.useMyLocation(true);
     } catch (e) {
       this.formError.set(apiErrorMessage(e, 'No se pudo crear la ruta'));
     } finally {
@@ -641,21 +836,14 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
       opacity: 0.85
     }).addTo(this.map);
 
-    this.originMarker = L.circleMarker([p.origin.lat, p.origin.lng], {
-      radius: 8,
-      fillColor: '#10b981',
-      color: '#fff',
-      weight: 2,
-      fillOpacity: 1
-    }).addTo(this.map).bindTooltip('Origen', { permanent: false });
-
-    this.destMarker = L.circleMarker([p.destination.lat, p.destination.lng], {
-      radius: 8,
-      fillColor: '#ef4444',
-      color: '#fff',
-      weight: 2,
-      fillOpacity: 1
-    }).addTo(this.map).bindTooltip('Destino', { permanent: false });
+    if (this.plans().includes(p)) {
+      // Planificación en curso: puntos arrastrables.
+      this.drawPins();
+    } else {
+      // Ruta ya guardada: sólo referencia.
+      this.originMarker = L.marker([p.origin.lat, p.origin.lng], { icon: this.pinIcon('#10b981', 'Origen') }).bindTooltip('Origen').addTo(this.map);
+      this.destMarker = L.marker([p.destination.lat, p.destination.lng], { icon: this.pinIcon('#ef4444', 'Destino') }).bindTooltip('Destino').addTo(this.map);
+    }
 
     this.map.fitBounds(this.routeLine.getBounds().pad(0.12));
   }
