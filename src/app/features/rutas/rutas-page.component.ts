@@ -48,9 +48,9 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
   selector: 'app-rutas-page',
   imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
-    <div class="h-[calc(100vh-4rem)] flex flex-col lg:flex-row">
+    <div class="h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px))] flex flex-col lg:flex-row">
       <!-- Panel estilo Uber / InDrive -->
-      <aside class="w-full lg:w-[400px] xl:w-[420px] shrink-0 border-r border-slate-200 bg-white flex flex-col z-10 max-h-[45vh] lg:max-h-none overflow-hidden">
+      <aside class="w-full lg:w-[400px] xl:w-[420px] shrink-0 border-r border-slate-200 bg-white flex flex-col z-10 max-h-[52%] lg:max-h-none overflow-hidden">
         <div class="p-4 border-b border-slate-100">
           <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
             <lucide-icon [img]="routeIcon" [size]="20" class="text-blue-600" />
@@ -291,7 +291,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
       </aside>
 
       <!-- Mapa -->
-      <div class="flex-1 relative min-h-[55vh] lg:min-h-0">
+      <div class="flex-1 relative min-h-[220px] lg:min-h-0">
         <div #mapEl class="absolute inset-0"></div>
         @if (!plan() && !selectedRouteId()) {
           <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur px-4 py-2 rounded-full text-xs text-slate-600 shadow-lg border border-slate-200 flex items-center gap-2">

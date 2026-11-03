@@ -52,27 +52,37 @@ const STAFF_NAV = [
         <aside
           class="sidebar"
           [class.is-open]="drawerOpen()"
+          [attr.aria-hidden]="isMobile() && !drawerOpen() ? 'true' : null"
           aria-label="Navegación principal"
         >
           <div class="px-5 pt-6 pb-4 flex items-center gap-2.5">
             <div class="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-400">
               <lucide-icon [img]="truckIcon" [size]="18" />
             </div>
-            <div class="leading-tight">
+            <div class="leading-tight flex-1 min-w-0">
               <div class="text-white font-semibold tracking-tight">TruckGPS</div>
               <div class="text-[11px] text-slate-400">Control Center · PE</div>
             </div>
+            <button
+              type="button"
+              class="lg:hidden w-9 h-9 -mr-1 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition"
+              aria-label="Cerrar menú"
+              (click)="closeDrawer()"
+            >
+              <lucide-icon [img]="closeIcon" [size]="18" />
+            </button>
           </div>
 
           <div class="px-3 pb-2 pt-2 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
             Navegación
           </div>
           <nav class="flex flex-col gap-1 px-3">
-            @for (item of navItems(); track item.path) {
+            @for (item of navItems(); track item.path; let i = $index) {
               <a
                 [routerLink]="item.path"
                 routerLinkActive="is-active"
                 class="sidebar-link"
+                [style.--i]="i"
                 (click)="closeDrawer()"
               >
                 <lucide-icon [img]="item.icon" [size]="18" />
@@ -137,17 +147,16 @@ const STAFF_NAV = [
           </div>
         </aside>
 
-        @if (drawerOpen()) {
-          <div class="drawer-backdrop is-open lg:hidden" (click)="closeDrawer()"></div>
-        }
+        <div class="drawer-backdrop lg:hidden" [class.is-open]="drawerOpen()" (click)="closeDrawer()"></div>
       </div>
 
       <div class="flex flex-col min-w-0">
         <header class="topbar">
           <button
             type="button"
-            class="lg:hidden p-2 rounded-md hover:bg-slate-100 transition"
+            class="lg:hidden -ml-1 w-10 h-10 rounded-full flex items-center justify-center hover:bg-slate-100 active:scale-95 transition"
             aria-label="Abrir menú"
+            [attr.aria-expanded]="drawerOpen()"
             (click)="openDrawer()"
           >
             <lucide-icon [img]="menuIcon" [size]="20" />
@@ -269,15 +278,29 @@ export class MainLayoutComponent {
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') this.closeDrawer();
       });
+      const mq = window.matchMedia('(max-width: 1023px)');
+      mq.addEventListener('change', (e) => {
+        this.isMobile.set(e.matches);
+        if (!e.matches) this.closeDrawer();
+      });
     }
   }
 
+  /** Menú lateral como panel (móvil/tablet) o fijo (escritorio). */
+  readonly isMobile = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
+
   openDrawer(): void {
     this.drawerOpen.set(true);
+    // Bloquea el scroll del fondo mientras el menú está abierto (iOS lo arrastraba).
+    document.body.classList.add('drawer-locked');
   }
 
   closeDrawer(): void {
+    if (!this.drawerOpen()) return;
     this.drawerOpen.set(false);
+    document.body.classList.remove('drawer-locked');
+    // Los mapas pueden quedar mal medidos tras abrir/cerrar el panel o rotar el teléfono.
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 560);
   }
 
   async onLogout(): Promise<void> {

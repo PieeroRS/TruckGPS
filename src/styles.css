@@ -74,10 +74,36 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Alto real de la pantalla en móviles: 100vh en iOS/Android incluye la barra del navegador
+   y deja contenido escondido; 100dvh es lo visible. --app-h tiene respaldo para navegadores viejos. */
+:root {
+  --app-h: 100vh;
+}
+@supports (height: 100dvh) {
+  :root {
+    --app-h: 100dvh;
+  }
+}
+
+/* Leaflet usa z-index 400–1000 en sus capas; sin aislarlo, el mapa se pinta encima del menú
+   y de los modales. Con isolation cada mapa queda en su propio contexto, debajo de la interfaz. */
+.leaflet-container {
+  isolation: isolate;
+  z-index: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body.drawer-locked {
+  overflow: hidden;
+  touch-action: none;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: 100vh;
+  min-height: var(--app-h);
 }
 
 @media (max-width: 1023px) {
@@ -94,22 +120,63 @@ body {
   flex-direction: column;
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: var(--app-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 40;
 }
 
+/* Móvil: panel que entra desde la izquierda sobre un fondo desenfocado (estilo Tora Box). */
 @media (max-width: 1023px) {
   .sidebar {
     position: fixed;
     top: 0;
     left: 0;
-    width: 260px;
-    transform: translateX(-100%);
-    transition: transform 220ms ease;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+    bottom: 0;
+    width: min(300px, 86vw);
+    height: auto;
+    max-height: var(--app-h);
+    z-index: 1200;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    border-radius: 0 22px 22px 0;
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition:
+      transform 0.55s cubic-bezier(0.76, 0, 0.24, 1),
+      visibility 0s 0.55s;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    -webkit-overflow-scrolling: touch;
   }
   .sidebar.is-open {
     transform: translateX(0);
+    visibility: visible;
+    transition:
+      transform 0.55s cubic-bezier(0.76, 0, 0.24, 1),
+      visibility 0s;
+  }
+  /* Los enlaces aparecen en cascada al abrir. */
+  .sidebar .sidebar-link {
+    opacity: 0;
+    transform: translateX(-14px);
+    transition:
+      opacity 0.35s ease,
+      transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1),
+      background 150ms ease,
+      color 150ms ease;
+  }
+  .sidebar.is-open .sidebar-link {
+    opacity: 1;
+    transform: none;
+    transition-delay: calc(0.12s + var(--i, 0) * 0.04s), calc(0.12s + var(--i, 0) * 0.04s), 0s, 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebar .sidebar-link,
+  .drawer-backdrop {
+    transition: none !important;
   }
 }
 
@@ -140,12 +207,34 @@ body {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  z-index: 30;
+  z-index: 1150;
+  background: rgba(15, 23, 42, 0.45);
+  -webkit-backdrop-filter: blur(0px);
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.45s ease,
+    backdrop-filter 0.6s ease,
+    -webkit-backdrop-filter 0.6s ease,
+    visibility 0s 0.6s;
+}
+.drawer-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition:
+    opacity 0.45s ease,
+    backdrop-filter 0.6s ease,
+    -webkit-backdrop-filter 0.6s ease,
+    visibility 0s;
 }
 
 .topbar {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.86);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
   border-bottom: 1px solid var(--slate-200);
   padding: 0.75rem 1.5rem;
   display: flex;
@@ -153,12 +242,14 @@ body {
   gap: 1rem;
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 30;
 }
 
 @media (max-width: 640px) {
   .topbar {
-    padding: 0.75rem 1rem;
+    padding: calc(0.6rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) 0.6rem
+      max(1rem, env(safe-area-inset-left, 0px));
+    gap: 0.75rem;
   }
 }
 
@@ -930,4 +1021,23 @@ textarea:focus-visible {
 .team-row.is-me td:first-child::before {
   opacity: 1;
   transform: scaleY(1);
+}
+
+/* Mapa en vivo: en escritorio mapa y lista ocupan el alto visible; en el celular
+   el mapa ocupa ~55 % de la pantalla y la lista se desplaza con la página. */
+.live-map {
+  height: calc(var(--app-h) - 9rem);
+  min-height: 420px;
+}
+.live-list {
+  max-height: calc(var(--app-h) - 9rem);
+}
+@media (max-width: 1023px) {
+  .live-map {
+    height: calc(var(--app-h) * 0.55);
+    min-height: 300px;
+  }
+  .live-list {
+    max-height: none;
+  }
 }
