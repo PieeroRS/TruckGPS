@@ -3,6 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { AuthService } from '../../auth/auth.service';
 import { ApiService } from '../api/api.service';
 import { apiErrorMessage } from '../utils/api-error.util';
+import { NativeFix, isNativeApp, openNativeSettings, startNativeWatch, stopNativeWatch } from './native-location';
 
 export interface VehicleOption {
   id: string;
@@ -54,6 +55,11 @@ export class LocationTrackingService {
   readonly accuracy = signal<number | null>(null);
   /** true si el último envío fue descartado por el servidor por ser mucho peor que el anterior. */
   readonly lastIgnored = signal(false);
+  /** Corriendo dentro de la app Android: el GPS sigue con la pantalla apagada. */
+  readonly native = isNativeApp();
+  /** La unidad llegó al destino de su ruta y el GPS se apagó solo. */
+  readonly arrived = signal<{ ruta: string; destino: string } | null>(null);
+  readonly needsSettings = signal(false);
   readonly lastSync = signal<Date | null>(null);
   readonly error = signal<string | null>(null);
   readonly syncing = signal(false);
@@ -61,6 +67,7 @@ export class LocationTrackingService {
   readonly wakeLockHeld = signal(false);
 
   private watchId: number | null = null;
+  private nativeWatchId: string | null = null;
   private lastSentAt = 0;
   private lastSentLat: number | null = null;
   private lastSentLng: number | null = null;
@@ -84,6 +91,7 @@ export class LocationTrackingService {
 
   async start(vehicleId: string, placa: string): Promise<{ ok: boolean; error?: string }> {
     this.error.set(null);
+    this.arrived.set(null);
 
     await this.auth.refreshProfile();
     const userId = this.auth.profile()?.id;
@@ -179,6 +187,7 @@ export class LocationTrackingService {
 
   private async startWatch(): Promise<{ ok: boolean; error?: string }> {
     this.clearWatchOnly();
+    if (this.native) return this.startNative();
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -213,10 +222,59 @@ export class LocationTrackingService {
     });
   }
 
-  private async onPosition(pos: GeolocationPosition, force: boolean): Promise<void> {
-    const lat = pos.coords.latitude;
-    const lng = pos.coords.longitude;
-    const acc = Math.round(pos.coords.accuracy);
+  /** App Android: servicio nativo que sigue reportando en segundo plano y con la pantalla apagada. */
+  private startNative(): Promise<{ ok: boolean; error?: string }> {
+    this.needsSettings.set(false);
+    return new Promise((resolve) => {
+      let resolved = false;
+      const finish = (r: { ok: boolean; error?: string }) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(r);
+        }
+      };
+      startNativeWatch(
+        (fix) => {
+          void this.handleFix(fix, false);
+          finish({ ok: true });
+        },
+        (msg, settings) => {
+          this.error.set(msg);
+          this.needsSettings.set(settings);
+          finish({ ok: false, error: msg });
+        }
+      )
+        .then((id) => {
+          this.nativeWatchId = id;
+          // El primer fix puede tardar con el cielo tapado; el servicio ya quedó activo.
+          setTimeout(() => finish({ ok: true }), 15_000);
+        })
+        .catch((e) => finish({ ok: false, error: e instanceof Error ? e.message : 'No se pudo iniciar el GPS.' }));
+    });
+  }
+
+  openSettings(): void {
+    openNativeSettings();
+  }
+
+  private onPosition(pos: GeolocationPosition, force: boolean): Promise<void> {
+    return this.handleFix(
+      {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: Math.round(pos.coords.accuracy),
+        speedMs: pos.coords.speed,
+        time: pos.timestamp
+      },
+      force
+    );
+  }
+
+  private async handleFix(fix: NativeFix, force: boolean): Promise<void> {
+    const pos = { timestamp: fix.time };
+    const lat = fix.lat;
+    const lng = fix.lng;
+    const acc = fix.accuracy;
     const now = Date.now();
 
     // Lecturas viejas que el navegador entrega fuera de orden.
@@ -228,7 +286,7 @@ export class LocationTrackingService {
     this.lastPosAt = pos.timestamp || now;
 
     // Velocidad del GPS; si el equipo no la da, se calcula con el desplazamiento.
-    let speed = pos.coords.speed != null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : null;
+    let speed = fix.speedMs != null && fix.speedMs >= 0 ? Math.round(fix.speedMs * 3.6) : null;
     if (speed === null && this.lastSentLat !== null && this.lastSentLng !== null && this.lastSentAt) {
       const d = haversineM(this.lastSentLat, this.lastSentLng, lat, lng);
       const dt = (now - this.lastSentAt) / 1000;
@@ -273,13 +331,18 @@ export class LocationTrackingService {
 
     this.syncing.set(true);
     try {
-      const res = await this.api.post<{ ignorada?: boolean }>(`/vehicles/${vid}/position`, {
+      const res = await this.api.post<{ ignorada?: boolean; llego?: { ruta: string; destino: string } | null }>(`/vehicles/${vid}/position`, {
         lat,
         lng,
         velocidad: speed,
         precision_m: acc
       });
       this.lastIgnored.set(!!res?.ignorada);
+      if (res?.llego) {
+        // Llegó al destino de su ruta: se apaga el GPS solo.
+        this.arrived.set(res.llego);
+        setTimeout(() => void this.stop(true), 0);
+      }
       this.error.set(null);
       this.lastSentAt = Date.now();
       this.lastSentLat = lat;
@@ -305,6 +368,10 @@ export class LocationTrackingService {
     if (this.watchId !== null) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
+    }
+    if (this.nativeWatchId !== null) {
+      void stopNativeWatch(this.nativeWatchId);
+      this.nativeWatchId = null;
     }
   }
 
@@ -369,6 +436,7 @@ export class LocationTrackingService {
   }
 
   private async onForeground(): Promise<void> {
+    if (this.native) return; // el servicio nativo nunca se detuvo
     void this.requestWakeLock();
     if (this.active() && this.watchId === null) {
       await this.startWatch();
@@ -388,6 +456,12 @@ export class LocationTrackingService {
       if (!this.active()) return;
       // Si watchPosition no trajo nada nuevo (equipo quieto), se pide una lectura fresca.
       if (Date.now() - this.lastSentAt < HEARTBEAT_MS - 1000) return;
+      if (this.native) {
+        const lat = this.lat();
+        const lng = this.lng();
+        if (lat != null && lng != null) void this.sendPosition(lat, lng, this.speedKmh());
+        return;
+      }
       navigator.geolocation.getCurrentPosition(
         (pos) => void this.onPosition(pos, true),
         () => {
@@ -408,6 +482,7 @@ export class LocationTrackingService {
   }
 
   private async requestWakeLock(): Promise<void> {
+    if (this.native) return;
     try {
       if (!('wakeLock' in navigator)) {
         this.wakeLockHeld.set(false);

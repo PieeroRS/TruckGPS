@@ -25,6 +25,8 @@ import {
 import { AuthService } from '../../auth/auth.service';
 import { LayoutService } from '../services/layout.service';
 import { ZoneProximityService } from '../services/zone-proximity.service';
+import { AlertWatcherService } from '../services/alert-watcher.service';
+import { LocationTrackingService } from '../services/location-tracking.service';
 
 const BASE_NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -182,10 +184,17 @@ const STAFF_NAV = [
             </div>
           </div>
 
-          <button type="button" class="relative p-2 rounded-md hover:bg-slate-100 transition" aria-label="Notificaciones">
+          <a
+            routerLink="/dashboard"
+            class="relative p-2 rounded-md hover:bg-slate-100 transition"
+            [attr.aria-label]="'Alertas: ' + watcher.unattended() + ' sin atender'"
+            [title]="watcher.unattended() ? watcher.unattended() + ' alertas sin atender' : 'Sin alertas nuevas'"
+          >
             <lucide-icon [img]="bellIcon" [size]="20" class="text-slate-600" />
-            <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
-          </button>
+            @if (watcher.unattended()) {
+              <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center ring-2 ring-white tnum">{{ watcher.unattended() > 99 ? '99+' : watcher.unattended() }}</span>
+            }
+          </a>
 
           <div class="hidden sm:flex items-center gap-2 pl-2 ml-1 border-l border-slate-200">
             <div class="w-8 h-8 rounded-full bg-[#1e3a8a] text-white text-xs font-semibold flex items-center justify-center">{{ auth.initials() }}</div>
@@ -205,6 +214,28 @@ const STAFF_NAV = [
             </button>
           </div>
         </header>
+
+        @if (tracking.arrived(); as llego) {
+          <div class="flex items-center gap-3 px-4 py-3 bg-emerald-600 text-white" role="status">
+            <lucide-icon [img]="mapPinIcon" [size]="18" class="shrink-0" />
+            <p class="text-[13px] leading-snug flex-1 min-w-0">
+              <strong>Llegaste a {{ llego.destino }}.</strong> La ruta «{{ llego.ruta }}» se completó y el GPS se apagó solo.
+            </p>
+            <button type="button" class="shrink-0 p-1 rounded-md hover:bg-emerald-500" (click)="tracking.arrived.set(null)" aria-label="Ocultar aviso">
+              <lucide-icon [img]="closeIcon" [size]="16" />
+            </button>
+          </div>
+        }
+        @if (!auth.isStaff() && watcher.myDeviation(); as dev) {
+          <div class="flex items-start gap-3 px-4 py-3 bg-amber-500 text-white" role="alert">
+            <lucide-icon [img]="alertTriangleIcon" [size]="18" class="mt-0.5 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="text-[13.5px] font-bold leading-snug">Te saliste de tu ruta</p>
+              <p class="text-[12px] leading-snug mt-0.5">{{ dev.descripcion }}</p>
+              <p class="text-[11.5px] mt-1 opacity-90">El centro de control ya fue avisado. Vuelve a la ruta o espera indicaciones.</p>
+            </div>
+          </div>
+        }
 
         @if (proximity.inside(); as hit) {
           @if (proximity.dismissedId() !== hit.zone.id) {
@@ -239,12 +270,41 @@ const STAFF_NAV = [
         </main>
       </div>
     </div>
+
+    <!-- Alertas nuevas en tiempo real (cualquier pantalla) -->
+    <div class="alert-toasts" aria-live="assertive">
+      @for (t of watcher.toasts(); track t.alert.id) {
+        <div class="alert-toast" [class]="'alert-toast sev-' + t.alert.severidad" role="alert">
+          <lucide-icon [img]="alertTriangleIcon" [size]="18" class="shrink-0 mt-0.5" />
+          <div class="min-w-0 flex-1">
+            <p class="text-[13px] font-bold leading-snug">{{ t.alert.titulo }}</p>
+            <p class="text-[12px] leading-snug mt-0.5 line-clamp-3 opacity-90">{{ t.alert.descripcion }}</p>
+            <div class="flex items-center gap-3 mt-2">
+              @if (auth.isStaff()) {
+                <a routerLink="/dashboard" class="text-[12px] font-semibold underline underline-offset-2" (click)="watcher.dismissToast(t.alert.id)">Atender</a>
+                @if (t.alert.vehicleId) {
+                  <a routerLink="/mapa-vivo" [queryParams]="{ vehiculo: t.alert.vehicleId }" class="text-[12px] font-semibold underline underline-offset-2" (click)="watcher.dismissToast(t.alert.id)">Ver en el mapa</a>
+                }
+              }
+              @if (watcher.notifPermission() === 'default') {
+                <button type="button" class="text-[12px] font-semibold underline underline-offset-2" (click)="watcher.enableNotifications()">Avisarme aunque no esté en la página</button>
+              }
+            </div>
+          </div>
+          <button type="button" class="shrink-0 p-1 rounded-md hover:bg-black/10" (click)="watcher.dismissToast(t.alert.id)" aria-label="Cerrar">
+            <lucide-icon [img]="closeIcon" [size]="14" />
+          </button>
+        </div>
+      }
+    </div>
   `
 })
 export class MainLayoutComponent {
   readonly layout = inject(LayoutService);
   readonly auth = inject(AuthService);
   readonly proximity = inject(ZoneProximityService);
+  readonly watcher = inject(AlertWatcherService);
+  readonly tracking = inject(LocationTrackingService);
   readonly alertTriangleIcon = AlertTriangle;
   readonly closeIcon = X;
 
@@ -270,6 +330,7 @@ export class MainLayoutComponent {
   readonly loggingOut = signal(false);
 
   constructor() {
+    this.watcher.start();
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
       this.closeDrawer();
     });
@@ -309,6 +370,7 @@ export class MainLayoutComponent {
     this.loggingOut.set(true);
     this.closeDrawer();
     try {
+      this.watcher.stop();
       await this.auth.logout();
     } finally {
       this.loggingOut.set(false);

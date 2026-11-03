@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TruckGPS</string>
+    <string name="title_activity_main">TruckGPS</string>
+    <string name="package_name">pe.truckgps.app</string>
+    <string name="custom_url_scheme">pe.truckgps.app</string>
+</resources>

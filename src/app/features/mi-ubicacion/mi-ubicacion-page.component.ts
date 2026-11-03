@@ -17,6 +17,8 @@ import {
 import { AuthService } from '../../auth/auth.service';
 import { LocationTrackingService, VehicleOption, accuracyQuality } from '../../core/services/location-tracking.service';
 import { createOsmMap } from '../../core/utils/map.utils';
+import { NavRoute } from '../../core/models/route.model';
+import { NavRoutesService } from '../../core/services/nav-routes.service';
 import { LayoutService } from '../../core/services/layout.service';
 
 @Component({
@@ -65,6 +67,7 @@ import { LayoutService } from '../../core/services/layout.service';
             <select
               class="select"
               [(ngModel)]="selectedVehicleId"
+              (ngModelChange)="selectedVehicleIdSig.set($event)"
               name="vehicle"
               [disabled]="tracking.active() || vehicles().length === 0"
               required
@@ -88,6 +91,56 @@ import { LayoutService } from '../../core/services/layout.service';
                 }
               </p>
             }
+          }
+        </div>
+
+        @if (myRoute(); as r) {
+          <div class="card p-4 fade-in-up space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Tu ruta</p>
+                <p class="text-sm font-semibold text-slate-900 truncate">{{ r.routeLabel }}</p>
+                <p class="text-[11px] text-slate-500">Destino: {{ r.destName }}</p>
+              </div>
+              <span class="badge shrink-0" [class]="r.status === 'en-curso' ? 'badge-success' : 'badge-warning'">{{ r.status === 'en-curso' ? 'En curso' : 'Por iniciar' }}</span>
+            </div>
+            @if (r.status === 'en-curso') {
+              <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div class="h-full bg-emerald-500 transition-all duration-700" [style.width.%]="r.progressPct"></div>
+              </div>
+              <p class="text-[11px] text-slate-500">Si te sales de la ruta, el centro de control recibe una alerta al instante. Al llegar al destino el GPS se apaga solo.</p>
+            } @else {
+              <button type="button" class="w-full py-2.5 rounded-lg bg-slate-900 text-white text-[13px] font-semibold disabled:opacity-50" [disabled]="startingRoute()" (click)="startRoute(r.id)">
+                {{ startingRoute() ? 'Iniciando…' : 'Iniciar ruta' }}
+              </button>
+              <p class="text-[11px] text-slate-500">Inicia la ruta para que se vigilen los desvíos y se detecte la llegada.</p>
+            }
+          </div>
+        }
+
+        <div class="card p-4 fade-in-up" [class]="tracking.native ? 'bg-emerald-50/70 border-emerald-100' : 'bg-amber-50/70 border-amber-100'">
+          @if (tracking.native) {
+            <p class="text-[12.5px] font-semibold text-emerald-900">App TruckGPS · GPS en segundo plano</p>
+            <p class="text-[11.5px] text-emerald-800 mt-1 leading-relaxed">
+              La ubicación se sigue enviando con la pantalla apagada o si cambias de app, hasta que la desactives o llegues a tu destino.
+              Verás una notificación fija de TruckGPS mientras esté activa. Para que el celular no la corte, en Ajustes → Batería
+              deja TruckGPS «Sin restricciones».
+            </p>
+            @if (tracking.needsSettings()) {
+              <button type="button" class="mt-2 text-[12px] font-semibold text-emerald-900 underline" (click)="tracking.openSettings()">Abrir ajustes de permisos</button>
+            }
+          } @else {
+            <p class="text-[12.5px] font-semibold text-amber-900">Estás usando el navegador</p>
+            <p class="text-[11.5px] text-amber-800 mt-1 leading-relaxed">
+              Los navegadores pausan el GPS al bloquear el celular o cambiar de app (es una limitación de Android y iPhone, no de TruckGPS).
+              Para que no se detenga, instala la app de Android:
+            </p>
+            <a [href]="apkUrl" class="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-[12px] font-semibold" rel="noopener">
+              Descargar app Android (APK)
+            </a>
+            <p class="text-[11px] text-amber-800/90 mt-2 leading-relaxed">
+              En iPhone, deja TruckGPS abierto en pantalla: la pantalla se mantiene encendida mientras compartes la ubicación.
+            </p>
           }
         </div>
 
@@ -252,6 +305,36 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
   selectedVehicleId = '';
 
   readonly refreshing = signal(false);
+  readonly apkUrl = 'https://github.com/PieeroRS/TruckGPS/releases/latest/download/TruckGPS.apk';
+  readonly routes = signal<NavRoute[]>([]);
+  readonly startingRoute = signal(false);
+  /** Ruta en curso (o asignada) de la unidad elegida. */
+  readonly myRoute = computed(() => {
+    const vid = this.tracking.vehicleId() ?? this.selectedVehicleIdSig();
+    if (!vid) return null;
+    const list = this.routes().filter((r) => r.vehicleId === vid && !(r.notes ?? '').startsWith('[circuito-sim]'));
+    return list.find((r) => r.status === 'en-curso') ?? list.find((r) => r.status === 'asignada') ?? null;
+  });
+  readonly selectedVehicleIdSig = signal('');
+  private readonly navRoutes = inject(NavRoutesService);
+  private routesTimer: ReturnType<typeof setInterval> | null = null;
+
+  async loadRoutes(): Promise<void> {
+    await this.navRoutes.load();
+    this.routes.set(this.navRoutes.routes());
+  }
+
+  async startRoute(id: string): Promise<void> {
+    this.startingRoute.set(true);
+    try {
+      await this.navRoutes.updateStatus(id, 'en-curso');
+      this.routes.set(this.navRoutes.routes());
+    } catch (e) {
+      this.tracking.error.set(e instanceof Error ? e.message : 'No se pudo iniciar la ruta');
+    } finally {
+      this.startingRoute.set(false);
+    }
+  }
   readonly quality = computed(() => accuracyQuality(this.tracking.accuracy()));
 
   /** El mapa existe sólo mientras el GPS está activo (el contenedor está dentro del @if). */
@@ -332,6 +415,10 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    void this.loadRoutes();
+    this.routesTimer = setInterval(() => {
+      if (!document.hidden) void this.loadRoutes();
+    }, 20_000);
     this.layout.setPage('Mi Ubicación', 'Comparte tu posición en vivo con el centro de control');
     void this.loadVehicles();
     void this.tracking.resumeIfNeeded();
@@ -339,6 +426,7 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     // El tracking sigue activo al salir de la página (conductor en ruta).
+    if (this.routesTimer) clearInterval(this.routesTimer);
     this.map?.remove();
     this.map = null;
   }
@@ -381,6 +469,7 @@ export class MiUbicacionPageComponent implements OnInit, OnDestroy {
         const mine = list.find((v) => v.esMio);
         if (mine) this.selectedVehicleId = mine.id;
       }
+      this.selectedVehicleIdSig.set(this.selectedVehicleId);
     } catch (e) {
       this.tracking.error.set(e instanceof Error ? e.message : 'Error al cargar vehículos');
     } finally {
