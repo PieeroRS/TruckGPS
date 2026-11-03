@@ -24,10 +24,37 @@ export function buildTruckIcon(estado: VehicleStatus, simulado = false): L.DivIc
   });
 }
 
+/** Segundos desde el último reporte GPS, o null si la unidad nunca reportó. */
+export function positionAgeSec(v: Vehicle): number | null {
+  if (!v.ultimaPosicion) return null;
+  return Math.max(0, Math.round((Date.now() - new Date(v.ultimaPosicion).getTime()) / 1000));
+}
+
+/** Reportó en el último minuto: la posición es en tiempo real. */
+export function isLive(v: Vehicle): boolean {
+  const age = positionAgeSec(v);
+  return age !== null && age <= 60;
+}
+
+function ageText(s: number): string {
+  if (s < 60) return `hace ${s} s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+
+/** Texto de calidad del dato: "En vivo · ±8 m · hace 3 s", "Último reporte hace 2 h", "Sin GPS". */
+export function positionLabel(v: Vehicle): string {
+  const age = positionAgeSec(v);
+  if (age === null) return 'Sin reportes GPS · posición de referencia';
+  const acc = v.precisionM != null ? ` · ±${v.precisionM >= 1000 ? (v.precisionM / 1000).toFixed(1) + ' km' : v.precisionM + ' m'}` : '';
+  return (age <= 60 ? 'En vivo' : 'Último reporte') + acc + ' · ' + ageText(age);
+}
+
 export function bindVehicleTooltip(marker: L.Marker, v: Vehicle): void {
   const info = vehicleStatusInfo(v.estado);
   marker.bindTooltip(
-    `<strong>${v.placa}</strong>${v.simulado ? ' · <em>unidad de prueba</em>' : ` · ${v.conductor}`}<br/>${info.label} · ${v.velocidad} km/h · ${v.ruta}`,
+    `<strong>${v.placa}</strong>${v.simulado ? ' · <em>unidad de prueba</em>' : ` · ${v.conductor}`}<br/>${info.label} · ${v.velocidad} km/h · ${v.ruta}<br/><span style="opacity:.75">${positionLabel(v)}</span>`,
     { direction: 'top', offset: [0, -10], className: 'truck-tooltip' }
   );
 }

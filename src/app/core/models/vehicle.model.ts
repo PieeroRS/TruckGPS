@@ -16,4 +16,8 @@ export interface Vehicle {
   tanqueGal?: number | null;
   /** Unidad de prueba que se mueve sola (SIM-001). */
   simulado?: boolean;
+  /** Radio de precisión (m) del último reporte GPS. */
+  precisionM?: number | null;
+  /** Hora del último reporte; null = nunca reportó (la posición es una referencia). */
+  ultimaPosicion?: string | null;
 }
