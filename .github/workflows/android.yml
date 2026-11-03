@@ -1,0 +1,75 @@
+name: App Android (APK)
+
+# Compila la app Android de TruckGPS (Capacitor) y la publica como «TruckGPS.apk» en la
+# release «apk». Enlace fijo de descarga:
+#   https://github.com/PieeroRS/TruckGPS/releases/latest/download/TruckGPS.apk
+# La app abre el sitio publicado, así que sólo hace falta recompilar cuando cambia la parte
+# nativa (carpeta android/, capacitor.config.ts o los plugins).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la web (respaldo sin conexión)
+        run: npx ng build
+
+      - name: Sincronizar Capacitor
+        run: npx cap sync android
+
+      - name: Compilar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../TruckGPS.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TruckGPS-apk
+          path: TruckGPS.apk
+
+      - name: Publicar en la release «apk»
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTAS="App Android de TruckGPS (compilación ${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA::7}). Instálala en el celular del conductor para que el GPS siga enviando la ubicación con la pantalla apagada o la app en segundo plano."
+          if gh release view apk >/dev/null 2>&1; then
+            gh release edit apk --title "TruckGPS para Android" --notes "$NOTAS" --latest
+          else
+            gh release create apk --title "TruckGPS para Android" --notes "$NOTAS" --latest --target "${GITHUB_SHA}"
+          fi
+          gh release upload apk TruckGPS.apk --clobber
