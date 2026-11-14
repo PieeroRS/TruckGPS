@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -292,6 +293,7 @@ const LIMA: [number, number] = [-12.0464, -77.0428];
   `
 })
 export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly confirmDialog = inject(ConfirmService);
   @ViewChild('mapEl') private mapEl?: ElementRef<HTMLDivElement>;
 
   private readonly svc = inject(ZonesService);
@@ -485,7 +487,7 @@ export class ZonasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async removeZone(z: RiskZone): Promise<void> {
-    if (!window.confirm(`¿Eliminar la zona "${z.nombre}"?`)) return;
+    if (!(await this.confirmDialog.ask(`¿Eliminar la zona "${z.nombre}"?`))) return;
     try {
       await this.svc.remove(z.id);
       await this.svc.loadZones();

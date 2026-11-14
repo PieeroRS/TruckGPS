@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
@@ -408,6 +409,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
   `
 })
 export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly auth = inject(AuthService);
   readonly fleet = inject(FleetService);
   readonly navRoutes = inject(NavRoutesService);
@@ -868,7 +870,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async deleteRoute(r: NavRoute, e: Event): Promise<void> {
     e.stopPropagation();
-    if (!confirm(`¿Eliminar ruta ${r.routeLabel}?`)) return;
+    if (!(await this.confirmDialog.ask(`¿Eliminar ruta ${r.routeLabel}?`))) return;
     try {
       await this.navRoutes.delete(r.id);
       if (this.selectedRouteId() === r.id) {

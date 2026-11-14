@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Component, OnInit, inject, signal } from '@angular/core';
@@ -281,6 +282,7 @@ import { formatDate, formatKm, vehicleStatusInfo } from '../../core/utils/map.ut
   `
 })
 export class FlotaPageComponent implements OnInit {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly fleet = inject(FleetService);
   readonly auth = inject(AuthService);
   private readonly layout = inject(LayoutService);
@@ -431,7 +433,7 @@ export class FlotaPageComponent implements OnInit {
   }
 
   async remove(v: Vehicle): Promise<void> {
-    if (!v.id || !confirm(`¿Eliminar vehículo ${v.placa}?`)) return;
+    if (!v.id || !(await this.confirmDialog.ask(`¿Eliminar vehículo ${v.placa}?`))) return;
     try {
       await this.fleet.delete(v.id);
       this.refresh();

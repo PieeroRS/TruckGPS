@@ -1,3 +1,4 @@
+import { ConfirmService } from '../core/services/confirm.service';
 import { Injectable, Injector, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
@@ -22,6 +23,7 @@ type LoginResponse = {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private readonly confirmDialog = inject(ConfirmService);
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
@@ -130,7 +132,7 @@ export class AuthService {
   }
 
   async logoutConfirm(): Promise<void> {
-    if (typeof window !== 'undefined' && !window.confirm('¿Cerrar sesión en TruckGPS?')) {
+    if (!(await this.confirmDialog.ask('¿Cerrar sesión en TruckGPS?', { okLabel: 'Cerrar sesión' }))) {
       return;
     }
     await this.logout();

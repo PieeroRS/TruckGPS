@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
@@ -382,6 +383,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   `
 })
 export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly dashboard = inject(DashboardService);
   readonly fleet = inject(FleetService);
   readonly auth = inject(AuthService);
@@ -556,7 +558,7 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   async deleteAlert(id: string): Promise<void> {
-    if (!confirm('¿Eliminar esta alerta permanentemente?')) return;
+    if (!(await this.confirmDialog.ask('¿Eliminar esta alerta permanentemente?'))) return;
     try {
       await this.aiAlerts.delete(id);
       await this.dashboard.load();

@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -396,6 +397,7 @@ const ESTADO_LABEL: Record<IncidentStatus, string> = {
   `
 })
 export class IncidenciasPageComponent implements OnInit {
+  private readonly confirmDialog = inject(ConfirmService);
   private readonly incidents = inject(IncidentService);
   private readonly layout = inject(LayoutService);
   readonly auth = inject(AuthService);
@@ -599,7 +601,7 @@ export class IncidenciasPageComponent implements OnInit {
   }
 
   async remove(inc: Incident): Promise<void> {
-    if (!confirm(`¿Eliminar incidencia ${inc.id}?`)) return;
+    if (!(await this.confirmDialog.ask(`¿Eliminar incidencia ${inc.id}?`))) return;
     const r = await this.incidents.delete(inc.id);
     if (!r.ok) this.showError(r.error ?? 'Error');
     else this.refresh();

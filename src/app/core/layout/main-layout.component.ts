@@ -1,3 +1,4 @@
+import { ConfirmService } from '../services/confirm.service';
 import { Component, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
@@ -307,6 +308,7 @@ const STAFF_NAV = [
   `
 })
 export class MainLayoutComponent {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly layout = inject(LayoutService);
   readonly auth = inject(AuthService);
   readonly proximity = inject(ZoneProximityService);
@@ -379,7 +381,7 @@ export class MainLayoutComponent {
 
   async onLogout(): Promise<void> {
     if (this.loggingOut()) return;
-    if (!confirm('¿Cerrar sesión en TruckGPS?')) return;
+    if (!(await this.confirmDialog.ask('¿Cerrar sesión en TruckGPS?', { okLabel: 'Cerrar sesión' }))) return;
     this.loggingOut.set(true);
     this.closeDrawer();
     try {

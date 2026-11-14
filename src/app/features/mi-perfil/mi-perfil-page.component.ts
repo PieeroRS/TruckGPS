@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -343,6 +344,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
   ]
 })
 export class MiPerfilPageComponent implements OnInit {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly auth = inject(AuthService);
   private readonly layout = inject(LayoutService);
 
@@ -503,7 +505,7 @@ export class MiPerfilPageComponent implements OnInit {
   }
 
   async logout(): Promise<void> {
-    if (!confirm('¿Cerrar sesión en TruckGPS?')) return;
+    if (!(await this.confirmDialog.ask('¿Cerrar sesión en TruckGPS?', { okLabel: 'Cerrar sesión' }))) return;
     this.loggingOut.set(true);
     try {
       await this.auth.logout();

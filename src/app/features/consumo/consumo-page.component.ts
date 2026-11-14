@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -412,6 +413,7 @@ function nowLocalInput(): string {
   `
 })
 export class ConsumoPageComponent implements OnInit {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly fuel = inject(FuelService);
   readonly auth = inject(AuthService);
   private readonly fleet = inject(FleetService);
@@ -514,7 +516,7 @@ export class ConsumoPageComponent implements OnInit {
   }
 
   async removeLog(l: FuelLog): Promise<void> {
-    if (!window.confirm(`¿Eliminar la carga de ${l.placa} por ${this.money(l.monto)}?`)) return;
+    if (!(await this.confirmDialog.ask(`¿Eliminar la carga de ${l.placa} por ${this.money(l.monto)}?`))) return;
     try {
       await this.fuel.deleteLog(l.id);
       await this.reload();

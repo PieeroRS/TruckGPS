@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { RouterLink } from '@angular/router';
 import {
   AfterViewInit,
@@ -197,6 +198,7 @@ const ESCENARIO_LABEL: Record<string, string> = {
   `
 })
 export class SimuladorPageComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly confirmDialog = inject(ConfirmService);
   private readonly sim = inject(SimulatorService);
   private readonly layout = inject(LayoutService);
 
@@ -298,7 +300,7 @@ export class SimuladorPageComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   async reset(): Promise<void> {
-    if (!confirm('¿Reiniciar la unidad de prueba? Se borran sus eventos y se cierran sus alertas.')) return;
+    if (!(await this.confirmDialog.ask('¿Reiniciar la unidad de prueba? Se borran sus eventos y se cierran sus alertas.'))) return;
     this.busy.set('reset');
     try {
       await this.sim.reset();

@@ -1,3 +1,4 @@
+import { ConfirmService } from '../services/confirm.service';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
@@ -192,6 +193,7 @@ const DRIVER_ACTIONS = new Set(['atender', 'contactar_conductor', 'ver_mapa']);
   `
 })
 export class AlertCardComponent {
+  private readonly confirmDialog = inject(ConfirmService);
   private readonly alerts = inject(AiAlertsService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
@@ -267,7 +269,7 @@ export class AlertCardComponent {
   }
 
   async run(ac: AlertAction): Promise<void> {
-    if (ac.codigo === 'descartar' && !confirm('¿Descartar esta alerta como falsa alarma?')) return;
+    if (ac.codigo === 'descartar' && !(await this.confirmDialog.ask('¿Descartar esta alerta como falsa alarma?'))) return;
     let nota: string | undefined;
     if (ac.codigo === 'contactar_conductor') {
       const r = prompt('Resultado del contacto con el conductor (opcional):', '');

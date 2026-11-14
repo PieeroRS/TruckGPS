@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -295,6 +296,7 @@ const ROLES: { key: Rol; label: string }[] = [
   ]
 })
 export class ConfiguracionPageComponent implements OnInit {
+  private readonly confirmDialog = inject(ConfirmService);
   readonly auth = inject(AuthService);
   private readonly settings = inject(SettingsService);
   private readonly layout = inject(LayoutService);
@@ -390,7 +392,7 @@ export class ConfiguracionPageComponent implements OnInit {
   }
 
   async resetUmbrales(): Promise<void> {
-    if (!confirm('¿Volver a los umbrales por defecto?')) return;
+    if (!(await this.confirmDialog.ask('¿Volver a los umbrales por defecto?'))) return;
     this.saving.set(true);
     try {
       this.setUmbrales(await this.settings.resetUmbrales());
