@@ -8,6 +8,7 @@ import {
   Eye, EyeOff, ArrowRight, Loader2, AlertCircle
 } from 'lucide-angular';
 import { AuthService } from '../auth/auth.service';
+import { SettingsService } from '../core/services/settings.service';
 
 @Component({
   standalone: true,
@@ -184,6 +185,7 @@ export class LoginPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly settings = inject(SettingsService);
 
   readonly truckIcon = Truck;
   readonly eyeIcon = Eye;
@@ -224,11 +226,19 @@ export class LoginPageComponent implements OnInit {
     this.error = '';
     this.submitting = true;
     const result = await this.auth.login(this.username.trim(), this.password);
-    this.submitting = false;
     if (!result.ok) {
+      this.submitting = false;
       this.error = result.error ?? 'Credenciales inválidas.';
       return;
     }
-    await this.router.navigateByUrl(this.redirectTo);
+    // Pantalla de inicio configurada para el rol (ir a "/" desde /login no navega: redirige a /login).
+    let target = this.redirectTo;
+    if (target === '/') {
+      await this.settings.ensureInterfaz(0);
+      target = '/' + this.settings.miInicio();
+    }
+    const ok = await this.router.navigateByUrl(target);
+    this.submitting = false;
+    if (!ok) await this.router.navigateByUrl('/dashboard');
   }
 }

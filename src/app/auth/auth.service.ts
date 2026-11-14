@@ -107,7 +107,8 @@ export class AuthService {
       this.isLoggedIn.set(true);
       try {
         const { LocationTrackingService } = await import('../core/services/location-tracking.service');
-        await this.injector.get(LocationTrackingService).resumeIfNeeded();
+        // Sin await: si el navegador pide permiso de ubicación, el inicio de sesión no debe quedarse esperando.
+        void this.injector.get(LocationTrackingService).resumeIfNeeded();
       } catch {
         /* ignore */
       }
