@@ -16,6 +16,7 @@ import {
   Menu,
   Route,
   Search,
+  Settings,
   ShieldAlert,
   Truck,
   User,
@@ -27,6 +28,7 @@ import { LayoutService } from '../services/layout.service';
 import { ZoneProximityService } from '../services/zone-proximity.service';
 import { AlertWatcherService } from '../services/alert-watcher.service';
 import { LocationTrackingService } from '../services/location-tracking.service';
+import { SettingsService } from '../services/settings.service';
 
 const BASE_NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -41,7 +43,8 @@ const BASE_NAV = [
 const STAFF_NAV = [
   { key: 'zonas', label: 'Zonas y avisos', icon: ShieldAlert, path: '/zonas' },
   { key: 'simulador', label: 'Simulador', icon: FlaskConical, path: '/simulador' },
-  { key: 'equipo', label: 'Equipo', icon: Users, path: '/equipo' }
+  { key: 'equipo', label: 'Equipo', icon: Users, path: '/equipo' },
+  { key: 'configuracion', label: 'Configuración', icon: Settings, path: '/configuracion' }
 ] as const;
 
 @Component({
@@ -94,6 +97,7 @@ const STAFF_NAV = [
           </nav>
 
           <div class="mt-auto p-3">
+            @if (settings.puedeVer('mi-ubicacion')) {
             <a
               routerLink="/mi-ubicacion"
               routerLinkActive="ring-2 ring-emerald-500/40 rounded"
@@ -108,6 +112,8 @@ const STAFF_NAV = [
                 Activa el GPS y selecciona tu unidad para aparecer en el mapa.
               </p>
             </a>
+            }
+            @if (settings.puedeVer('reportar')) {
             <a
               routerLink="/reportar"
               routerLinkActive="ring-2 ring-red-500/40 rounded"
@@ -122,6 +128,7 @@ const STAFF_NAV = [
                 Vista mobile optimizada para conductores en ruta.
               </p>
             </a>
+            }
 
             <div class="mt-3 rounded-lg border border-white/10 overflow-hidden">
               <a
@@ -314,9 +321,14 @@ export class MainLayoutComponent {
   }
   private readonly router = inject(Router);
 
-  readonly navItems = computed(() =>
-    this.auth.isStaff() ? [...BASE_NAV, ...STAFF_NAV] : [...BASE_NAV]
-  );
+  readonly settings = inject(SettingsService);
+
+  /** Menú según el rol y la interfaz que configuró el administrador. */
+  readonly navItems = computed(() => {
+    const items = this.auth.isStaff() ? [...BASE_NAV, ...STAFF_NAV] : [...BASE_NAV];
+    const mods = this.settings.misModulos();
+    return mods ? items.filter((i) => mods.has(i.key)) : items;
+  });
   readonly truckIcon = Truck;
   readonly alertCircleIcon = AlertCircle;
   readonly mapPinIcon = MapPin;
@@ -331,6 +343,7 @@ export class MainLayoutComponent {
 
   constructor() {
     this.watcher.start();
+    void this.settings.loadInterfaz();
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
       this.closeDrawer();
     });

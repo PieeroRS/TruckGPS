@@ -20,4 +20,6 @@ export interface Vehicle {
   precisionM?: number | null;
   /** Hora del último reporte; null = nunca reportó (la posición es una referencia). */
   ultimaPosicion?: string | null;
+  /** gps = celular/equipo · sim = unidad de prueba · demo = recorrido simulado de la flota de ejemplo. */
+  fuentePosicion?: 'gps' | 'sim' | 'demo' | null;
 }

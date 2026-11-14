@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 
 import { ApiService } from '../api/api.service';
-import { GeoPlace, RoutePlan, TrafficStatus } from '../models/route.model';
+import { GeoPlace, RouteHistoryStats, RoutePlan, TrafficStatus } from '../models/route.model';
 
 type PlanResponse = {
   rutas: {
@@ -13,8 +13,10 @@ type PlanResponse = {
     eventos: { id: string; descripcion: string; nivel: string; demora_min: number }[];
     recomendada: boolean;
     geometry: [number, number][];
+    duration_pred_min?: number;
   }[];
   franja: string;
+  historico?: RouteHistoryStats | null;
 };
 
 type NominatimResult = {
@@ -58,6 +60,8 @@ export class RoutingService {
           franja: r.franja,
           eventos: r.eventos,
           recomendada: r.recomendada,
+          durationPredMin: r.duration_pred_min != null ? Math.round(r.duration_pred_min) : undefined,
+          historico: res.historico ?? null,
           coordinates: r.geometry
         }));
       }

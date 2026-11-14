@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   FlaskConical,
+  Gauge,
   History,
   LucideAngularModule,
   MapPin,
@@ -31,7 +32,8 @@ const ICONS: Record<string, LucideIcon> = {
   'map-pin': MapPin,
   siren: Siren,
   'alert-triangle': AlertTriangle,
-  sparkles: Sparkles
+  sparkles: Sparkles,
+  gauge: Gauge
 };
 
 const TIPO_LABEL: Record<string, string> = {
@@ -42,7 +44,8 @@ const TIPO_LABEL: Record<string, string> = {
   salida_zona: 'Salida de zona',
   parada_riesgo: 'Parada en zona de riesgo',
   trafico: 'Tráfico',
-  sabotaje: 'Sabotaje'
+  sabotaje: 'Sabotaje',
+  exceso_velocidad: 'Exceso de velocidad'
 };
 
 /** Acciones que también puede ejecutar un conductor (el resto es de supervisión). */

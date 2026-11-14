@@ -211,7 +211,7 @@ export class LoginPageComponent implements OnInit {
   error = '';
   submitting = false;
   showPassword = false;
-  private redirectTo = '/dashboard';
+  private redirectTo = '/';
 
   ngOnInit(): void {
     const redirect = this.route.snapshot.queryParamMap.get('redirect');

@@ -47,6 +47,7 @@ function ageText(s: number): string {
 export function positionLabel(v: Vehicle): string {
   const age = positionAgeSec(v);
   if (age === null) return 'Sin GPS · posición de referencia';
+  if (v.fuentePosicion === 'demo') return 'Recorrido simulado (sin GPS) · ' + ageText(age);
   const acc = v.precisionM != null ? ` · ±${v.precisionM >= 1000 ? (v.precisionM / 1000).toFixed(1) + ' km' : v.precisionM + ' m'}` : '';
   return (age <= 60 ? 'En vivo' : 'Último reporte') + acc + ' · ' + ageText(age);
 }
@@ -54,7 +55,7 @@ export function positionLabel(v: Vehicle): string {
 export function bindVehicleTooltip(marker: L.Marker, v: Vehicle): void {
   const info = vehicleStatusInfo(v.estado);
   marker.bindTooltip(
-    `<strong>${v.placa}</strong>${v.simulado ? ' · <em>unidad de prueba</em>' : ` · ${v.conductor}`}<br/>${info.label} · ${v.velocidad} km/h · ${v.ruta}<br/><span style="opacity:.75">${positionLabel(v)}</span>`,
+    `<strong>${v.placa}</strong>${v.simulado ? ' · <em>unidad de prueba</em>' : v.fuentePosicion === 'demo' ? ' · <em>recorrido simulado</em>' : ` · ${v.conductor}`}<br/>${info.label} · ${v.velocidad} km/h · ${v.ruta}<br/><span style="opacity:.75">${positionLabel(v)}</span>`,
     { direction: 'top', offset: [0, -10], className: 'truck-tooltip' }
   );
 }
