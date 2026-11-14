@@ -36,6 +36,12 @@ export interface SimulatorState {
   desviado: boolean;
   geocerca: { lat: number; lng: number; radioM: number };
   escenarios: SimScenario[];
+  umbrales?: {
+    desvio_m: number;
+    desvio_alto_m: number;
+    velocidad_max_kmh: number;
+    velocidad_margen_alta_kmh: number;
+  };
   eventos: VehicleEvent[];
   alertas: AiAlert[];
   trafico: TrafficEvent[];

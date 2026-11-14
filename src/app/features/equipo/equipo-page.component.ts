@@ -1,3 +1,4 @@
+import { RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -28,7 +29,7 @@ import { LayoutService } from '../../core/services/layout.service';
 @Component({
   standalone: true,
   selector: 'app-equipo-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
 
@@ -39,9 +40,14 @@ import { LayoutService } from '../../core/services/layout.service';
           <p class="text-[13px] text-slate-500 mt-1.5">Administra perfiles, roles y altas de conductores.</p>
         </div>
         @if (auth.isStaff()) {
+          <div class="flex flex-wrap items-center gap-2">
+          <a routerLink="/configuracion" [queryParams]="{ tab: 'interfaz' }" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg ring-1 ring-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[12.5px] font-semibold transition">
+            Qué ve cada rol
+          </a>
           <button type="button" class="group inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0b1220] hover:bg-[#16233b] text-white text-[12.5px] font-semibold transition-all active:scale-[0.98] shadow-[0_1px_2px_rgba(11,18,32,0.25),0_6px_16px_-8px_rgba(11,18,32,0.5)]" (click)="openCreate()">
             <lucide-icon [img]="plusIcon" [size]="14" class="transition-transform duration-300 group-hover:rotate-90" />Agregar conductor
           </button>
+          </div>
         }
       </div>
 

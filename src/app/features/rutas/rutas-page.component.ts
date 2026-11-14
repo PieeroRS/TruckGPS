@@ -17,6 +17,7 @@ import * as L from 'leaflet';
 import {
   ArrowLeftRight,
   Crosshair,
+  History,
   Loader2,
   LocateFixed,
   LucideAngularModule,
@@ -196,7 +197,64 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                   Sin tráfico: {{ formatDuration(p.durationMin) }} · estimado para {{ p.franja }}@if (p.eventos?.length) {; pasa por {{ p.eventos!.length }} evento(s) de tráfico (+{{ eventDelay(p) }} min)}.
                 </p>
               }
+              @if (p.durationPredMin != null) {
+                <div class="mt-3 pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                  <span class="text-[10.5px] uppercase tracking-wide text-violet-300 font-semibold">Predicción con historial</span>
+                  <span class="text-[15px] font-bold">{{ formatDuration(p.durationPredMin) }}</span>
+                </div>
+              }
             </div>
+
+            @if (p.historico; as h) {
+              <div class="rounded-xl ring-1 ring-violet-200 bg-violet-50/60 p-3.5 fade-in-up">
+                <div class="flex items-center gap-2 mb-1.5">
+                  <lucide-icon [img]="historyIcon" [size]="14" class="text-violet-600" />
+                  <p class="text-[12.5px] font-semibold text-violet-900">Datos históricos del corredor</p>
+                </div>
+                @if (h.viajes) {
+                  <p class="text-[11.5px] text-slate-700 leading-snug">
+                    Basado en <strong>{{ h.viajes }} viajes completados</strong> {{ h.corredor }}.
+                    @if (h.usaFranja) {
+                      Los {{ h.viajesFranja }} que salieron en la franja «{{ h.franja }}» tardaron
+                    } @else {
+                      En promedio los viajes tardaron
+                    }
+                    <strong>{{ pctLabel(h.ratio!) }}</strong> que el tiempo sin tráfico.
+                  </p>
+                  <p class="text-[11.5px] text-slate-700 mt-1">
+                    Predicción para este viaje: <strong>{{ formatDuration(h.prediccionMin!) }}</strong>&nbsp;<span class="text-slate-500">(entre {{ formatDuration(h.rangoMin![0]) }} y {{ formatDuration(h.rangoMin![1]) }})</span>
+                  </p>
+                  @if (h.mejorFranja; as mf) {
+                    <p class="text-[11.5px] text-emerald-700 mt-1">
+                      Mejor hora para salir según el historial: <strong>{{ mf.franja }}</strong> (~{{ formatDuration(mf.prediccionMin) }}).
+                    </p>
+                  }
+                  @if (h.porFranja?.length) {
+                    <div class="mt-2.5 space-y-1">
+                      @for (f of h.porFranja; track f.franja) {
+                        <div class="flex items-center gap-2 text-[10.5px]">
+                          <span class="w-[118px] shrink-0 truncate" [class]="f.franja === h.franja ? 'font-semibold text-violet-800' : 'text-slate-500'">{{ f.franja }}</span>
+                          <span class="flex-1 h-1.5 rounded-full bg-white overflow-hidden ring-1 ring-violet-100">
+                            <span class="block h-full rounded-full" [class]="f.franja === h.franja ? 'bg-violet-600' : 'bg-violet-300'" [style.width.%]="barPct(f.prediccionMin, h)"></span>
+                          </span>
+                          <span class="w-12 text-right tnum text-slate-600">{{ formatDuration(f.prediccionMin) }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                  @if (h.ultimos?.length) {
+                    <p class="text-[10.5px] text-slate-500 mt-2.5">
+                      Últimos viajes:
+                      @for (u of h.ultimos; track u.fecha; let last = $last) {
+                        {{ u.fecha | date: 'dd/MM' }} {{ u.placa ?? '' }} {{ formatDuration(u.duracionMin) }}{{ last ? '' : ' · ' }}
+                      }
+                    </p>
+                  }
+                } @else {
+                  <p class="text-[11.5px] text-slate-600 leading-snug">{{ h.mensaje }}</p>
+                }
+              </div>
+            }
 
             @if (plans().length > 1) {
               <div>
@@ -362,6 +420,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly routeIcon = Route;
   readonly swapIcon = ArrowLeftRight;
   readonly loaderIcon = Loader2;
+  readonly historyIcon = History;
   readonly navIcon = Navigation;
   readonly truckIcon = Truck;
   readonly mapPinIcon = MapPin;
@@ -715,7 +774,19 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     return Math.round(p.distanceKm * 2.8 * 100) / 100;
   }
 
+  /** 1.12 → "12 % más"; 0.95 → "5 % menos". */
+  pctLabel(ratio: number): string {
+    const pct = Math.round((ratio - 1) * 100);
+    return pct >= 0 ? `${pct} % más` : `${-pct} % menos`;
+  }
+
+  barPct(min: number, h: { porFranja?: { prediccionMin: number }[] }): number {
+    const max = Math.max(...(h.porFranja ?? []).map((f) => f.prediccionMin), 1);
+    return Math.max(8, Math.round((min / max) * 100));
+  }
+
   formatDuration(min: number): string {
+    min = Math.round(min);
     if (min < 60) return `${min} min`;
     const h = Math.floor(min / 60);
     const m = min % 60;

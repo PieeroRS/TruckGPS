@@ -10,6 +10,8 @@ export type UserProfile = {
   full_name: string;
   email: string;
   role: 'admin' | 'supervisor' | 'conductor';
+  telefono?: string | null;
+  licencia?: string | null;
 };
 
 type LoginResponse = {
@@ -60,9 +62,12 @@ export class AuthService {
     }
   }
 
-  async updateOwnProfile(fullName: string): Promise<{ ok: boolean; error?: string }> {
+  async updateOwnProfile(
+    data: string | { full_name?: string; telefono?: string; licencia?: string }
+  ): Promise<{ ok: boolean; error?: string }> {
+    const body = typeof data === 'string' ? { full_name: data.trim() } : data;
     try {
-      const profile = await this.api.patch<UserProfile>('/auth/me', { full_name: fullName.trim() });
+      const profile = await this.api.patch<UserProfile>('/auth/me', body);
       this.profile.set(profile);
       return { ok: true };
     } catch (e) {

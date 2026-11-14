@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-angular';
 import { SAMPLE_ROUTES } from '../../core/data/seed.data';
+import { ApiService } from '../../core/api/api.service';
 import { FleetService } from '../../core/services/fleet.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { ZonesService } from '../../core/services/zones.service';
@@ -139,9 +140,9 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
                     <span class="w-2 h-2 rounded-full shrink-0 ring-2 ring-white" [class]="statusInfo(v.estado).dot"></span>
                     <strong class="text-[13.5px] font-semibold text-slate-900 tracking-tight truncate">{{ v.placa }}</strong>
                     @if (live(v)) {
-                      <span class="relative flex w-1.5 h-1.5 shrink-0" title="GPS en vivo">
-                        <span class="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
-                        <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span class="relative flex w-1.5 h-1.5 shrink-0" [title]="v.fuentePosicion === 'demo' ? 'En movimiento (recorrido simulado)' : 'GPS en vivo'">
+                        <span class="absolute inline-flex w-full h-full rounded-full opacity-75 animate-ping" [class]="v.fuentePosicion === 'demo' ? 'bg-violet-400' : 'bg-emerald-400'"></span>
+                        <span class="relative inline-flex w-1.5 h-1.5 rounded-full" [class]="v.fuentePosicion === 'demo' ? 'bg-violet-500' : 'bg-emerald-500'"></span>
                       </span>
                     }
                   </div>
@@ -246,6 +247,26 @@ type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
               </div>
               <p class="text-[12px] text-slate-600 truncate">{{ sv.conductor }}</p>
               <p class="text-[11.5px] text-slate-400 truncate mt-0.5">{{ sv.ruta }}</p>
+              <div class="mt-2.5 pt-2.5 border-t border-slate-100">
+                <div class="flex items-center justify-between gap-2 text-[11.5px]">
+                  <span class="flex items-center gap-1.5 text-slate-600 font-medium">
+                    <span class="w-4 h-1 rounded-full bg-blue-600"></span>Ruta recorrida
+                  </span>
+                  <select class="text-[11px] border border-slate-200 rounded-md px-1 py-0.5 bg-white" [value]="trackMin()" (change)="setTrackMin($any($event.target).value)" aria-label="Periodo del recorrido">
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="60">1 h</option>
+                    <option value="120">2 h</option>
+                  </select>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-1">
+                  @if (trackInfo(); as ti) {
+                    {{ ti.puntos ? ti.km.toFixed(1) + ' km en ' + ti.puntos + ' reportes' : 'Sin reportes en este periodo' }}{{ ti.fuente === 'demo' ? ' · recorrido simulado' : '' }}
+                  } @else {
+                    Cargando recorrido...
+                  }
+                </p>
+              </div>
               <div class="flex items-center gap-3 mt-2.5 pt-2.5 border-t border-slate-100 text-[11.5px]">
                 <span class="flex items-center gap-1 text-slate-500">
                   <lucide-icon [img]="gaugeIcon" [size]="11" />
@@ -311,6 +332,12 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private didFitBounds = false;
   private readonly route = inject(ActivatedRoute);
   private trafficLayer: L.LayerGroup | null = null;
+  private trackLayer: L.LayerGroup | null = null;
+  private trackFetchedAt = 0;
+  private trackFor: string | null = null;
+  readonly trackMin = signal(30);
+  readonly trackInfo = signal<{ puntos: number; km: number; fuente: string } | null>(null);
+  private readonly api = inject(ApiService);
 
   constructor() {
     effect(() => {
@@ -382,6 +409,51 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   clearSelection(): void {
     this.selectedPlaca.set(null);
+    this.trackLayer?.clearLayers();
+    this.trackInfo.set(null);
+    this.trackFor = null;
+  }
+
+  setTrackMin(min: string | number): void {
+    this.trackMin.set(Number(min) || 30);
+    const v = this.selectedVehicle();
+    if (v) void this.loadTrack(v, true);
+  }
+
+  /** Dibuja la ruta recorrida por la unidad seleccionada en los últimos minutos. */
+  private async loadTrack(v: Vehicle, fit = false): Promise<boolean> {
+    if (!this.map || !v.id) return false;
+    this.trackFetchedAt = Date.now();
+    if (this.trackFor !== v.placa) this.trackInfo.set(null);
+    this.trackFor = v.placa;
+    try {
+      const res = await this.api.get<{ fuente: string; puntos: { lat: number; lng: number; velocidad: number; t: string }[] }>(
+        `/vehicles/${v.id}/recorrido?minutos=${this.trackMin()}`
+      );
+      if (!this.map || this.selectedPlaca() !== v.placa) return false;
+      const pts = res.puntos.map((p) => [p.lat, p.lng] as L.LatLngTuple);
+      if (pts.length && (pts[pts.length - 1][0] !== v.lat || pts[pts.length - 1][1] !== v.lng)) pts.push([v.lat, v.lng]);
+      this.trackLayer ??= L.layerGroup().addTo(this.map);
+      this.trackLayer.clearLayers();
+      let km = 0;
+      for (let i = 1; i < pts.length; i++) km += this.map.distance(pts[i - 1], pts[i]) / 1000;
+      this.trackInfo.set({ puntos: res.puntos.length, km, fuente: res.fuente });
+      if (pts.length >= 2) {
+        L.polyline(pts, { color: '#ffffff', weight: 8, opacity: 0.9, interactive: false }).addTo(this.trackLayer);
+        L.polyline(pts, { color: '#2563eb', weight: 4.5, opacity: 0.95 })
+          .bindTooltip(`Ruta recorrida por ${v.placa} · últimos ${this.trackMin()} min · ${km.toFixed(1)} km`, { sticky: true, className: 'truck-tooltip' })
+          .addTo(this.trackLayer);
+        L.circleMarker(pts[0], { radius: 5, color: '#1e3a8a', weight: 2, fillColor: '#fff', fillOpacity: 1 })
+          .bindTooltip(`Inicio del periodo (${new Date(res.puntos[0].t).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })})`, { className: 'truck-tooltip' })
+          .addTo(this.trackLayer);
+        if (fit) this.map.flyToBounds(L.latLngBounds(pts).pad(0.25), { maxZoom: 15, duration: 1.2 });
+        return true;
+      }
+      return false;
+    } catch {
+      this.trackInfo.set({ puntos: 0, km: 0, fuente: '' });
+      return false;
+    }
   }
 
   speedPct(velocidad: number): number {
@@ -405,15 +477,24 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   posClass(v: Vehicle): string {
     if (!isLive(v)) return 'text-slate-400';
+    if (v.fuentePosicion === 'demo') return 'text-violet-600 font-medium';
     const p = v.precisionM ?? 0;
     return p <= 25 ? 'text-emerald-600 font-medium' : p <= 100 ? 'text-emerald-600' : 'text-amber-600 font-medium';
   }
 
   focusVehicle(v: Vehicle): void {
     if (!this.map) return;
+    const nueva = this.selectedPlaca() !== v.placa;
     this.selectedPlaca.set(v.placa);
-    this.map.flyTo([v.lat, v.lng], 14, { duration: 1.2 });
     this.markers.get(v.placa)?.openTooltip();
+    if (nueva) {
+      // Encuadra la ruta recorrida; si no hay recorrido, centra la unidad.
+      void this.loadTrack(v, true).then((hay) => {
+        if (!hay) this.map?.flyTo([v.lat, v.lng], 14, { duration: 1.2 });
+      });
+    } else {
+      this.map.flyTo([v.lat, v.lng], 14, { duration: 1.2 });
+    }
   }
 
   /** Eventos de tráfico activos (congestión, bloqueos) registrados o simulados. */
@@ -515,6 +596,9 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
         this.markers.set(v.placa, m);
       }
     }
+
+    const sel = this.selectedVehicle();
+    if (sel && Date.now() - this.trackFetchedAt > 9_000) void this.loadTrack(sel);
 
     if (!this.didFitBounds && vehicles.length > 0) {
       const bounds = L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as L.LatLngTuple));

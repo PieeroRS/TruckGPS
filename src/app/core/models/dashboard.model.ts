@@ -14,7 +14,8 @@ export type AlertTipo =
   | 'salida_zona'
   | 'parada_riesgo'
   | 'trafico'
-  | 'sabotaje';
+  | 'sabotaje'
+  | 'exceso_velocidad';
 
 export type AlertEstado = 'activa' | 'en_atencion' | 'resuelta' | 'descartada';
 

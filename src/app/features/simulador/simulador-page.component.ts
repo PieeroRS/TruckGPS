@@ -1,3 +1,4 @@
+import { RouterLink } from '@angular/router';
 import {
   AfterViewInit,
   Component,
@@ -36,6 +37,8 @@ const EVENT_LABEL: Record<string, string> = {
   salida_zona: 'Salida de geocerca',
   parada_riesgo: 'Parada en zona de riesgo',
   ruta_completada: 'Ruta completada',
+  exceso_velocidad: 'Exceso de velocidad',
+  velocidad_normal: 'Velocidad normal',
   simulacion: 'Simulador'
 };
 
@@ -46,13 +49,14 @@ const ESCENARIO_LABEL: Record<string, string> = {
   spoofing: 'Spoofing en curso',
   jamming: 'Sin señal GPS',
   salida_zona: 'Saliendo de la geocerca',
-  sabotaje: 'Sabotaje en curso'
+  sabotaje: 'Sabotaje en curso',
+  exceso_velocidad: 'Exceso de velocidad en curso'
 };
 
 @Component({
   standalone: true,
   selector: 'app-simulador-page',
-  imports: [LucideAngularModule, AlertCardComponent],
+  imports: [LucideAngularModule, AlertCardComponent, RouterLink],
   template: `
     <div class="p-4 sm:p-6 space-y-5">
       <!-- Estado de la unidad -->
@@ -136,8 +140,13 @@ const ESCENARIO_LABEL: Record<string, string> = {
             </article>
           }
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            Las reglas son las mismas que para los camiones reales: desvío &gt; 250 m (alta desde 1 km), salto de posición imposible, sin reportes mientras circula,
-            salida de geocerca y puntaje de sabotaje ponderado de las últimas 24 h. «Reiniciar unidad» borra el historial de prueba.
+            @if (st()?.umbrales; as u) {
+              Las reglas son las mismas que para los camiones reales: desvío &gt; {{ u.desvio_m }} m (alta desde {{ u.desvio_alto_m }} m),
+              velocidad &gt; {{ u.velocidad_max_kmh }} km/h (alta desde {{ u.velocidad_max_kmh + u.velocidad_margen_alta_kmh }} km/h), salto de posición imposible, sin reportes mientras circula,
+              salida de geocerca y puntaje de sabotaje ponderado de las últimas 24 h. Los límites se cambian en
+              <a routerLink="/configuracion" class="font-semibold text-violet-600 hover:underline">Configuración → Umbrales de alerta</a>.
+              «Reiniciar unidad» borra el historial de prueba.
+            }
           </p>
         </div>
 

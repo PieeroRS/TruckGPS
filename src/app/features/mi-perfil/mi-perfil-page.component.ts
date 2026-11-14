@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   AlertCircle,
   BadgeCheck,
@@ -8,18 +9,25 @@ import {
   LogOut,
   LucideAngularModule,
   Mail,
+  Lock,
   Monitor,
+  Pencil,
   Save,
   Shield,
+  Truck,
   User
 } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
+import { ApiService } from '../../core/api/api.service';
+import { Vehicle } from '../../core/models/vehicle.model';
 import { LayoutService } from '../../core/services/layout.service';
+import { DatosFlota, FlotaResponse, SettingsService } from '../../core/services/settings.service';
+import { apiErrorMessage } from '../../core/utils/api-error.util';
 
 @Component({
   standalone: true,
   selector: 'app-mi-perfil-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 flex justify-center">
       <div class="w-full max-w-lg space-y-4">
@@ -69,95 +77,179 @@ import { LayoutService } from '../../core/services/layout.service';
 
         <!-- ═══════════ DATOS PERSONALES ═══════════ -->
         <div class="card p-5 anim-in transition-shadow duration-300 hover:shadow-md" style="animation-delay: 90ms">
-          <div class="flex items-center gap-2.5 mb-1 group">
-            <div
-              class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100 flex items-center justify-center
-                     transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
-            >
-              <lucide-icon [img]="userIcon" [size]="16" />
+          <div class="flex items-start justify-between gap-3 mb-1">
+            <div class="flex items-center gap-2.5 group">
+              <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <lucide-icon [img]="userIcon" [size]="16" />
+              </div>
+              <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Información personal</h3>
             </div>
-            <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Información personal</h3>
+            @if (!editing()) {
+              <button type="button" class="edit-btn" (click)="startEdit()">
+                <lucide-icon [img]="pencilIcon" [size]="13" />Editar perfil
+              </button>
+            }
           </div>
-          <p class="text-[12.5px] text-slate-500 mb-5 ml-[42px]">Actualiza los datos visibles para tu equipo.</p>
+          <p class="text-[12.5px] text-slate-500 mb-5 ml-[42px]">Datos visibles para tu equipo y el centro de control.</p>
 
-          <div class="space-y-4">
-            <div>
-              <label class="input-label">Nombre completo</label>
-              <input
-                type="text"
-                class="input transition-all duration-200 focus:scale-[1.005]"
-                [(ngModel)]="fullName"
-                name="fullName"
-                placeholder="Tu nombre y apellido"
-              />
-              @if (dirty()) {
-                <p class="text-[11px] text-amber-600 mt-1.5 flex items-center gap-1.5 msg-in">
-                  <span class="w-1 h-1 rounded-full bg-amber-500 dot-pulse"></span>Tienes cambios sin guardar
-                </p>
+          @if (!editing()) {
+            <dl class="space-y-3 text-[13px]">
+              <div class="info-row"><dt>Nombre completo</dt><dd>{{ auth.profile()?.full_name || '—' }}</dd></div>
+              <div class="info-row"><dt>Teléfono</dt><dd>{{ auth.profile()?.telefono || 'Sin registrar' }}</dd></div>
+              <div class="info-row"><dt>N.° de licencia</dt><dd>{{ auth.profile()?.licencia || 'Sin registrar' }}</dd></div>
+              <div class="info-row">
+                <dt class="flex items-center gap-1"><lucide-icon [img]="mailIcon" [size]="12" />Correo</dt>
+                <dd class="flex items-center gap-1.5">{{ auth.profile()?.email }}<lucide-icon [img]="lockIcon" [size]="12" class="text-slate-300" /></dd>
+              </div>
+              <div class="info-row">
+                <dt class="flex items-center gap-1"><lucide-icon [img]="shieldIcon" [size]="12" />Rol</dt>
+                <dd class="flex items-center gap-1.5">{{ auth.roleLabel() }}<lucide-icon [img]="lockIcon" [size]="12" class="text-slate-300" /></dd>
+              </div>
+            </dl>
+          } @else {
+            <div class="space-y-4">
+              <div>
+                <label class="input-label" for="pf-name">Nombre completo</label>
+                <input id="pf-name" type="text" class="input" [(ngModel)]="fullName" name="fullName" placeholder="Tu nombre y apellido" />
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="input-label" for="pf-tel">Teléfono</label>
+                  <input id="pf-tel" type="tel" class="input" [(ngModel)]="telefono" name="telefono" placeholder="+51 987 654 321" />
+                </div>
+                <div>
+                  <label class="input-label" for="pf-lic">N.° de licencia de conducir</label>
+                  <input id="pf-lic" type="text" class="input uppercase" [(ngModel)]="licencia" name="licencia" placeholder="Q12345678" />
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-400">El correo y el rol no se cambian aquí: el correo es tu usuario de acceso y el rol lo asigna un administrador en Equipo.</p>
+
+              <div class="flex gap-2">
+                <button type="button" class="flex-1 py-2.5 rounded-lg ring-1 ring-slate-200 text-slate-700 text-[13px] font-semibold hover:bg-slate-50 transition" [disabled]="saving()" (click)="cancelEdit()">Cancelar</button>
+                <button
+                  type="button"
+                  class="flex-1 py-2.5 rounded-lg bg-[#0b1220] hover:bg-[#16233b] text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  [disabled]="saving() || !dirty()"
+                  (click)="save()"
+                >
+                  <lucide-icon [img]="saveIcon" [size]="15" [class.animate-pulse]="saving()" />
+                  {{ saving() ? 'Guardando...' : 'Guardar cambios' }}
+                </button>
+              </div>
+            </div>
+          }
+
+          @if (error()) {
+            <div class="flex items-start gap-2 p-3 mt-4 rounded-lg bg-red-50 ring-1 ring-red-200 text-red-700 msg-in">
+              <lucide-icon [img]="alertIcon" [size]="14" class="mt-0.5 shrink-0" />
+              <p class="text-[12.5px] leading-snug">{{ error() }}</p>
+            </div>
+          }
+          @if (success()) {
+            <div class="flex items-start gap-2 p-3 mt-4 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700 msg-in">
+              <lucide-icon [img]="checkIcon" [size]="14" class="mt-0.5 shrink-0 check-pop" />
+              <p class="text-[12.5px] leading-snug">{{ success() }}</p>
+            </div>
+          }
+        </div>
+
+        <!-- ═══════════ INFORMACIÓN DE FLOTA ═══════════ -->
+        <div class="card p-5 anim-in transition-shadow duration-300 hover:shadow-md" style="animation-delay: 140ms">
+          <div class="flex items-start justify-between gap-3 mb-1">
+            <div class="flex items-center gap-2.5 group">
+              <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <lucide-icon [img]="truckIcon" [size]="16" />
+              </div>
+              <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Información de flota</h3>
+            </div>
+            @if (auth.isStaff() && !editingFlota()) {
+              <button type="button" class="edit-btn" (click)="startEditFlota()">
+                <lucide-icon [img]="pencilIcon" [size]="13" />Editar datos de flota
+              </button>
+            }
+          </div>
+          <p class="text-[12.5px] text-slate-500 mb-5 ml-[42px]">
+            {{ auth.isStaff() ? 'Datos de la empresa que aparecen en reportes y avisos.' : 'Tu empresa y la unidad que tienes asignada.' }}
+          </p>
+
+          @if (!editingFlota()) {
+            <dl class="space-y-3 text-[13px]">
+              <div class="info-row"><dt>Empresa</dt><dd>{{ flota()?.datos?.empresa || 'Sin registrar' }}</dd></div>
+              <div class="info-row"><dt>RUC</dt><dd class="tnum">{{ flota()?.datos?.ruc || 'Sin registrar' }}</dd></div>
+              <div class="info-row"><dt>Sede / base de operaciones</dt><dd>{{ flota()?.datos?.sede || 'Sin registrar' }}</dd></div>
+              <div class="info-row"><dt>Teléfono de la central</dt><dd>{{ flota()?.datos?.telefono_central || 'Sin registrar' }}</dd></div>
+              <div class="info-row"><dt>Correo de la central</dt><dd>{{ flota()?.datos?.correo_central || 'Sin registrar' }}</dd></div>
+              <div class="info-row">
+                <dt>Unidades registradas</dt>
+                <dd class="flex items-center gap-2"><span class="tnum">{{ flota()?.unidades ?? '—' }}</span>
+                  <a routerLink="/flota" class="text-[12px] font-semibold text-blue-600 hover:underline">Ver flota</a></dd>
+              </div>
+            </dl>
+            @if (flota()?.actualizado) {
+              <p class="text-[11px] text-slate-400 mt-3">Actualizado {{ flota()!.actualizado | date: 'dd/MM/yyyy HH:mm' }} por {{ flota()!.actualizadoPor }}</p>
+            }
+          } @else {
+            <div class="space-y-3">
+              <div>
+                <label class="input-label" for="fl-emp">Empresa</label>
+                <input id="fl-emp" class="input" [(ngModel)]="flotaForm.empresa" name="empresa" placeholder="Razón social" />
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="input-label" for="fl-ruc">RUC</label>
+                  <input id="fl-ruc" class="input tnum" inputmode="numeric" maxlength="11" [(ngModel)]="flotaForm.ruc" name="ruc" placeholder="20123456789" />
+                </div>
+                <div>
+                  <label class="input-label" for="fl-sede">Sede / base</label>
+                  <input id="fl-sede" class="input" [(ngModel)]="flotaForm.sede" name="sede" placeholder="Ej. Callao" />
+                </div>
+                <div>
+                  <label class="input-label" for="fl-tel">Teléfono de la central</label>
+                  <input id="fl-tel" class="input" [(ngModel)]="flotaForm.telefono_central" name="telc" placeholder="(01) 555 1234" />
+                </div>
+                <div>
+                  <label class="input-label" for="fl-mail">Correo de la central</label>
+                  <input id="fl-mail" type="email" class="input" [(ngModel)]="flotaForm.correo_central" name="mailc" placeholder="central@empresa.pe" />
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-400">Los datos de cada vehículo (placa, modelo, kilometraje, mantenimiento) se editan en <a routerLink="/flota" class="text-blue-600 font-semibold hover:underline">Flota</a>.</p>
+              <div class="flex gap-2">
+                <button type="button" class="flex-1 py-2.5 rounded-lg ring-1 ring-slate-200 text-slate-700 text-[13px] font-semibold hover:bg-slate-50 transition" [disabled]="savingFlota()" (click)="editingFlota.set(false)">Cancelar</button>
+                <button type="button" class="flex-1 py-2.5 rounded-lg bg-[#0b1220] hover:bg-[#16233b] text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition disabled:opacity-40" [disabled]="savingFlota()" (click)="saveFlota()">
+                  <lucide-icon [img]="saveIcon" [size]="15" />{{ savingFlota() ? 'Guardando...' : 'Guardar datos de flota' }}
+                </button>
+              </div>
+            </div>
+          }
+
+          @if (!auth.isStaff()) {
+            <div class="mt-5 pt-4 border-t border-slate-100">
+              <h4 class="text-[13px] font-semibold text-slate-900 mb-2">Mi unidad asignada</h4>
+              @if (miUnidad(); as u) {
+                <dl class="space-y-2.5 text-[13px]">
+                  <div class="info-row"><dt>Placa</dt><dd class="font-semibold">{{ u.placa }}</dd></div>
+                  <div class="info-row"><dt>Modelo</dt><dd>{{ u.modelo }}</dd></div>
+                  <div class="info-row"><dt>Kilometraje</dt><dd class="tnum">{{ u.km | number }} km</dd></div>
+                </dl>
+                <div class="flex items-end gap-2 mt-3">
+                  <div class="flex-1">
+                    <label class="input-label" for="mu-km">Actualizar kilometraje (odómetro)</label>
+                    <input id="mu-km" type="number" class="input tnum" [(ngModel)]="nuevoKm" name="nuevoKm" [min]="u.km" />
+                  </div>
+                  <button type="button" class="py-2.5 px-4 rounded-lg bg-[#0b1220] text-white text-[13px] font-semibold disabled:opacity-40" [disabled]="savingFlota() || !nuevoKm || nuevoKm <= u.km" (click)="saveKm()">Guardar</button>
+                </div>
+              } @else {
+                <p class="text-[12.5px] text-slate-500">No tienes una unidad asignada. Elige tu unidad en <a routerLink="/mi-ubicacion" class="text-blue-600 font-semibold hover:underline">Mi ubicación en vivo</a>.</p>
               }
             </div>
+          }
 
-            <div>
-              <label class="input-label flex items-center gap-1.5">
-                <lucide-icon [img]="mailIcon" [size]="12" class="text-slate-400" />Correo
-              </label>
-              <div class="relative">
-                <input type="email" class="input bg-slate-50 text-slate-500 pr-9" [value]="auth.profile()?.email ?? ''" disabled />
-                <lucide-icon [img]="lockBadgeIcon" [size]="14" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              </div>
-              <p class="text-[11px] text-slate-400 mt-1.5">El correo no se puede modificar desde aquí.</p>
+          @if (flotaMsg(); as m) {
+            <div class="flex items-start gap-2 p-3 mt-4 rounded-lg ring-1 msg-in" [class]="m.ok ? 'bg-emerald-50 ring-emerald-200 text-emerald-700' : 'bg-red-50 ring-red-200 text-red-700'">
+              <lucide-icon [img]="m.ok ? checkIcon : alertIcon" [size]="14" class="mt-0.5 shrink-0" />
+              <p class="text-[12.5px] leading-snug">{{ m.text }}</p>
             </div>
-
-            <div>
-              <label class="input-label flex items-center gap-1.5">
-                <lucide-icon [img]="shieldIcon" [size]="12" class="text-slate-400" />Rol asignado
-              </label>
-              <div class="relative">
-                <input type="text" class="input bg-slate-50 text-slate-500 pr-9" [value]="auth.roleLabel()" disabled />
-                <lucide-icon [img]="lockBadgeIcon" [size]="14" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              </div>
-              <p class="text-[11px] text-slate-400 mt-1.5">Solo un administrador puede cambiar tu rol.</p>
-            </div>
-
-            @if (error()) {
-              <div class="flex items-start gap-2 p-3 rounded-lg bg-red-50 ring-1 ring-red-200 text-red-700 msg-in">
-                <lucide-icon [img]="alertIcon" [size]="14" class="mt-0.5 shrink-0" />
-                <p class="text-[12.5px] leading-snug">{{ error() }}</p>
-              </div>
-            }
-
-            @if (success()) {
-              <div class="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700 msg-in">
-                <lucide-icon [img]="checkIcon" [size]="14" class="mt-0.5 shrink-0 check-pop" />
-                <p class="text-[12.5px] leading-snug">{{ success() }}</p>
-              </div>
-            }
-
-            <button
-              type="button"
-              class="group relative w-full py-2.5 rounded-lg overflow-hidden bg-[#0b1220] hover:bg-[#16233b]
-                     text-white text-[13.5px] font-semibold
-                     flex items-center justify-center gap-2 transition-all duration-200 active:scale-[0.99]
-                     shadow-[0_1px_2px_rgba(11,18,32,0.25),0_6px_16px_-8px_rgba(11,18,32,0.5)]
-                     hover:shadow-[0_1px_2px_rgba(11,18,32,0.25),0_10px_24px_-8px_rgba(11,18,32,0.6)]
-                     disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
-              [disabled]="saving() || !dirty()"
-              (click)="save()"
-            >
-              <span
-                class="pointer-events-none absolute inset-0 -translate-x-full
-                       bg-gradient-to-r from-transparent via-white/12 to-transparent
-                       transition-transform duration-700 group-hover:translate-x-full"
-              ></span>
-              <lucide-icon
-                [img]="saveIcon"
-                [size]="15"
-                [class.animate-pulse]="saving()"
-                class="transition-transform duration-200 group-hover:-translate-y-0.5"
-              />
-              {{ saving() ? 'Guardando...' : 'Guardar cambios' }}
-            </button>
-          </div>
+          }
         </div>
 
         <!-- ═══════════ ESTADO DE CUENTA ═══════════ -->
@@ -236,7 +328,19 @@ import { LayoutService } from '../../core/services/layout.service';
         </p>
       </div>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .info-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 0; }
+      .info-row dt { color: #64748b; flex-shrink: 0; }
+      .info-row dd { color: #0f172a; font-weight: 500; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+      .edit-btn {
+        display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 8px; flex-shrink: 0;
+        font-size: 12px; font-weight: 600; color: #1d4ed8; background: #eff6ff; box-shadow: 0 0 0 1px #dbeafe inset; transition: all .15s;
+      }
+      .edit-btn:hover { background: #dbeafe; }
+    `
+  ]
 })
 export class MiPerfilPageComponent implements OnInit {
   readonly auth = inject(AuthService);
@@ -252,6 +356,22 @@ export class MiPerfilPageComponent implements OnInit {
   readonly badgeIcon = BadgeCheck;
   readonly monitorIcon = Monitor;
   readonly lockBadgeIcon = BadgeCheck;
+  readonly lockIcon = Lock;
+  readonly pencilIcon = Pencil;
+  readonly truckIcon = Truck;
+
+  private readonly api = inject(ApiService);
+  private readonly settings = inject(SettingsService);
+  readonly editing = signal(false);
+  readonly editingFlota = signal(false);
+  readonly savingFlota = signal(false);
+  readonly flota = signal<FlotaResponse | null>(null);
+  readonly miUnidad = signal<Vehicle | null>(null);
+  readonly flotaMsg = signal<{ ok: boolean; text: string } | null>(null);
+  flotaForm: Partial<DatosFlota> = {};
+  nuevoKm: number | null = null;
+  telefono = '';
+  licencia = '';
 
   readonly saving = signal(false);
   readonly loggingOut = signal(false);
@@ -259,16 +379,103 @@ export class MiPerfilPageComponent implements OnInit {
   readonly success = signal<string | null>(null);
 
   fullName = '';
-  private originalName = '';
 
   ngOnInit(): void {
-    this.layout.setPage('Mi perfil', 'Datos de tu cuenta');
-    this.fullName = this.auth.profile()?.full_name ?? '';
-    this.originalName = this.fullName;
+    this.layout.setPage('Mi perfil', 'Datos de tu cuenta y de tu flota');
+    this.resetForm();
+    void this.loadFlota();
+  }
+
+  private resetForm(): void {
+    const p = this.auth.profile();
+    this.fullName = p?.full_name ?? '';
+    this.telefono = p?.telefono ?? '';
+    this.licencia = p?.licencia ?? '';
+  }
+
+  startEdit(): void {
+    this.resetForm();
+    this.error.set(null);
+    this.success.set(null);
+    this.editing.set(true);
+  }
+
+  cancelEdit(): void {
+    this.resetForm();
+    this.error.set(null);
+    this.editing.set(false);
   }
 
   dirty(): boolean {
-    return this.fullName.trim() !== this.originalName.trim() && this.fullName.trim().length > 0;
+    const p = this.auth.profile();
+    if (!this.fullName.trim()) return false;
+    return (
+      this.fullName.trim() !== (p?.full_name ?? '').trim() ||
+      this.telefono.trim() !== (p?.telefono ?? '') ||
+      this.licencia.trim().toUpperCase() !== (p?.licencia ?? '')
+    );
+  }
+
+  private async loadFlota(): Promise<void> {
+    try {
+      this.flota.set(await this.settings.getFlota());
+    } catch {
+      /* informativo */
+    }
+    if (!this.auth.isStaff()) {
+      try {
+        const v = await this.api.get<Vehicle | null>('/vehicles/mia');
+        this.miUnidad.set(v);
+        this.nuevoKm = v?.km ?? null;
+      } catch {
+        this.miUnidad.set(null);
+      }
+    }
+  }
+
+  private flashFlota(ok: boolean, text: string): void {
+    this.flotaMsg.set({ ok, text });
+    setTimeout(() => {
+      if (this.flotaMsg()?.text === text) this.flotaMsg.set(null);
+    }, 4000);
+  }
+
+  startEditFlota(): void {
+    this.flotaForm = { ...(this.flota()?.datos ?? {}) };
+    this.editingFlota.set(true);
+  }
+
+  async saveFlota(): Promise<void> {
+    const ruc = (this.flotaForm.ruc ?? '').trim();
+    if (ruc && !/^\d{11}$/.test(ruc)) {
+      this.flashFlota(false, 'El RUC debe tener 11 dígitos.');
+      return;
+    }
+    this.savingFlota.set(true);
+    try {
+      this.flota.set(await this.settings.saveFlota(this.flotaForm));
+      this.editingFlota.set(false);
+      this.flashFlota(true, 'Datos de flota actualizados correctamente.');
+    } catch (e) {
+      this.flashFlota(false, apiErrorMessage(e, 'No se pudieron guardar los datos de flota'));
+    } finally {
+      this.savingFlota.set(false);
+    }
+  }
+
+  async saveKm(): Promise<void> {
+    const u = this.miUnidad();
+    if (!u?.id || !this.nuevoKm) return;
+    this.savingFlota.set(true);
+    try {
+      const v = await this.api.patch<Vehicle>(`/vehicles/${u.id}/odometro`, { kilometraje: this.nuevoKm });
+      this.miUnidad.set(v);
+      this.flashFlota(true, `Kilometraje de ${v.placa} actualizado a ${v.km.toLocaleString('es-PE')} km.`);
+    } catch (e) {
+      this.flashFlota(false, apiErrorMessage(e, 'No se pudo actualizar el kilometraje'));
+    } finally {
+      this.savingFlota.set(false);
+    }
   }
 
   shortId(): string {
@@ -280,12 +487,16 @@ export class MiPerfilPageComponent implements OnInit {
     this.saving.set(true);
     this.error.set(null);
     this.success.set(null);
-    const result = await this.auth.updateOwnProfile(this.fullName);
+    const result = await this.auth.updateOwnProfile({
+      full_name: this.fullName.trim(),
+      telefono: this.telefono.trim(),
+      licencia: this.licencia.trim().toUpperCase()
+    });
     this.saving.set(false);
     if (!result.ok) {
       this.error.set(result.error ?? 'Error al guardar');
     } else {
-      this.originalName = this.fullName;
+      this.editing.set(false);
       this.success.set('Perfil actualizado correctamente.');
       setTimeout(() => this.success.set(null), 3500);
     }

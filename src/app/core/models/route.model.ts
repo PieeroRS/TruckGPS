@@ -19,6 +19,26 @@ export interface RoutePlan {
   franja?: string;
   eventos?: { id: string; descripcion: string; nivel: string; demora_min: number }[];
   recomendada?: boolean;
+  /** Tiempo predicho con el historial del corredor (misma franja horaria). */
+  durationPredMin?: number;
+  historico?: RouteHistoryStats | null;
+}
+
+export interface RouteHistoryStats {
+  viajes: number;
+  mensaje?: string;
+  viajesFranja?: number;
+  corredor?: string;
+  franja?: string;
+  usaFranja?: boolean;
+  ratio?: number;
+  prediccionMin?: number;
+  rangoMin?: [number, number];
+  promedioRealMin?: number;
+  mejorFranja?: { franja: string; viajes: number; prediccionMin: number; ratio: number } | null;
+  porFranja?: { franja: string; viajes: number; prediccionMin: number; ratio: number }[];
+  ultimos?: { fecha: string; placa: string | null; duracionMin: number; franja: string; fuente: string }[];
+  deApp?: number;
 }
 
 export interface TrafficEvent {
