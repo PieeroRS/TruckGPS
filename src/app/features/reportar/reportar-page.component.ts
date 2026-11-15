@@ -213,6 +213,9 @@ interface PhotoPreview {
           </div>
 
           <!-- ─── Enviar ─── -->
+          @if (submitError()) {
+            <p class="text-[12.5px] text-red-700 bg-red-50 ring-1 ring-red-200 rounded-lg px-3 py-2" role="alert">{{ submitError() }}</p>
+          }
           <button
             type="submit"
             class="group w-full bg-[#0b1220] hover:bg-[#16233b] text-white text-[14px] font-semibold py-3.5 rounded-xl
@@ -262,8 +265,13 @@ interface PhotoPreview {
           <div class="w-20 h-20 rounded-full bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/50 flex items-center justify-center mx-auto mb-5 check-pop">
             <lucide-icon [img]="checkIcon" [size]="34" [strokeWidth]="2.5" />
           </div>
-          <h3 class="text-[19px] font-bold text-slate-900 tracking-tight mb-2">Alerta enviada</h3>
-          <p class="text-[13px] text-slate-500 leading-relaxed">El centro de control fue notificado. Mantén la calma y espera contacto.</p>
+          @if (lastQueued()) {
+            <h3 class="text-[19px] font-bold text-slate-900 tracking-tight mb-2">Alerta guardada, sin señal</h3>
+            <p class="text-[13px] text-slate-500 leading-relaxed">No hay conexión: el centro de control <strong>todavía no la recibe</strong>. Se enviará sola apenas vuelva la señal. Si es urgente, llama por teléfono.</p>
+          } @else {
+            <h3 class="text-[19px] font-bold text-slate-900 tracking-tight mb-2">Alerta enviada</h3>
+            <p class="text-[13px] text-slate-500 leading-relaxed">El centro de control fue notificado. Mantén la calma y espera contacto.</p>
+          }
         </div>
       </div>
     }
@@ -275,8 +283,13 @@ interface PhotoPreview {
           <div class="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/50 flex items-center justify-center mx-auto mb-4 check-pop">
             <lucide-icon [img]="checkIcon" [size]="28" [strokeWidth]="2.5" />
           </div>
-          <h3 class="text-[17px] font-bold text-slate-900 tracking-tight mb-1.5">Reporte enviado</h3>
-          <p class="text-[12.5px] text-slate-500 leading-relaxed">Tu incidencia será asignada al equipo correspondiente en los próximos minutos.</p>
+          @if (lastQueued()) {
+            <h3 class="text-[17px] font-bold text-slate-900 tracking-tight mb-1.5">Reporte guardado, sin señal</h3>
+            <p class="text-[12.5px] text-slate-500 leading-relaxed">No hay conexión. Quedó guardado en tu celular con sus fotos y se enviará solo cuando vuelva la señal.</p>
+          } @else {
+            <h3 class="text-[17px] font-bold text-slate-900 tracking-tight mb-1.5">Reporte enviado</h3>
+            <p class="text-[12.5px] text-slate-500 leading-relaxed">Tu incidencia será asignada al equipo correspondiente en los próximos minutos.</p>
+          }
         </div>
       </div>
     }
@@ -348,6 +361,8 @@ export class ReportarPageComponent implements OnInit {
   readonly showPanicModal = signal(false);
   readonly showPanicSent = signal(false);
   readonly showSubmitSuccess = signal(false);
+  readonly lastQueued = signal(false);
+  readonly submitError = signal('');
 
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
@@ -525,9 +540,10 @@ export class ReportarPageComponent implements OnInit {
 
   confirmPanic(): void {
     this.showPanicModal.set(false);
-    void this.submitIncident(true).then(() => {
+    void this.submitIncident(true).then((ok) => {
+      if (!ok) return;
       this.showPanicSent.set(true);
-      setTimeout(() => this.showPanicSent.set(false), 4000);
+      setTimeout(() => this.showPanicSent.set(false), this.lastQueued() ? 8000 : 4000);
     });
   }
 
@@ -536,14 +552,14 @@ export class ReportarPageComponent implements OnInit {
     void this.submitIncident(false).then((ok) => {
       if (ok) {
         this.showSubmitSuccess.set(true);
-        setTimeout(() => this.showSubmitSuccess.set(false), 3500);
+        setTimeout(() => this.showSubmitSuccess.set(false), this.lastQueued() ? 6000 : 3500);
       }
     });
   }
 
   private async submitIncident(esPanico: boolean): Promise<boolean> {
     if (!this.activePlaca) {
-      alert('Debes tener un vehículo asignado. Ve a Mi ubicación y activa el GPS.');
+      this.submitError.set('Debes tener un vehículo asignado. Ve a Mi ubicación y activa el GPS.');
       return false;
     }
 
@@ -564,7 +580,12 @@ export class ReportarPageComponent implements OnInit {
       audio: this.audioBlob
     });
 
-    if (!result.ok) return false;
+    if (!result.ok) {
+      this.submitError.set(result.error ?? 'No se pudo enviar el reporte');
+      return false;
+    }
+    this.submitError.set('');
+    this.lastQueued.set(!!result.queued);
 
     this.ubicacion = '';
     this.categoria = '';

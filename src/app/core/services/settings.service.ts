@@ -50,18 +50,37 @@ export interface FlotaResponse {
   actualizado: string | null;
 }
 
+const INTERFAZ_KEY = 'truckgps_interfaz';
+
+function readCachedInterfaz(): InterfazResponse | null {
+  try {
+    const raw = localStorage.getItem(INTERFAZ_KEY);
+    return raw ? (JSON.parse(raw) as InterfazResponse) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Configuración editable: umbrales del motor, interfaz por rol y datos de la flota. */
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
 
-  readonly interfaz = signal<InterfazResponse | null>(null);
+  /** Se parte de la última interfaz guardada en el equipo (sirve al abrir la app sin señal). */
+  readonly interfaz = signal<InterfazResponse | null>(readCachedInterfaz());
   private loadedAt = 0;
 
   /** Recarga la interfaz si tiene más de un minuto (así un cambio del admin llega sin cerrar sesión). */
   async ensureInterfaz(maxAgeMs = 60_000): Promise<void> {
-    if (!this.interfaz() || Date.now() - this.loadedAt > maxAgeMs) await this.loadInterfaz();
+    if (this.interfaz() && Date.now() - this.loadedAt <= maxAgeMs) return;
+    if (!this.interfaz()) {
+      await this.loadInterfaz();
+      return;
+    }
+    // Con una copia guardada no se bloquea la pantalla si la señal es mala: se espera 2,5 s como máximo.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    await Promise.race([this.loadInterfaz(), new Promise((r) => setTimeout(r, 2500))]);
   }
 
   /** Módulos que ve el usuario actual (null = todavía no se cargó: no se oculta nada). */
@@ -88,6 +107,11 @@ export class SettingsService {
       const r = await this.api.get<InterfazResponse>('/settings/interfaz');
       this.interfaz.set(r);
       this.loadedAt = Date.now();
+      try {
+        localStorage.setItem(INTERFAZ_KEY, JSON.stringify(r));
+      } catch {
+        /* almacenamiento lleno o bloqueado */
+      }
       return r;
     } catch {
       return this.interfaz();

@@ -31,6 +31,7 @@ import { LayoutService } from '../../core/services/layout.service';
 import { LocationTrackingService } from '../../core/services/location-tracking.service';
 import { NavRoutesService } from '../../core/services/nav-routes.service';
 import { NavSessionService } from '../../core/services/nav-session.service';
+import { OfflineQueueService, isNetworkError } from '../../core/services/offline-queue.service';
 import { RoutingService } from '../../core/services/routing.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
@@ -194,6 +195,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly navRoutes = inject(NavRoutesService);
   private readonly session = inject(NavSessionService);
   readonly voice = inject(VoiceService);
+  private readonly queue = inject(OfflineQueueService);
   readonly tracking = inject(LocationTrackingService);
 
   readonly navIcon = Navigation;
@@ -549,12 +551,20 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   async reportClosure(): Promise<void> {
     if (!this.pos) return;
     this.reporting.set(true);
+    let pendiente: Record<string, unknown> | null = null;
     try {
       // El cierre está adelante del vehículo: se marca unos 60 m más allá sobre la ruta.
       let punto: LatLng = [this.pos.lat, this.pos.lng];
       const pr = this.path.length > 1 ? projectOnPath(this.path, this.cum, punto, this.along()) : null;
       if (pr && pr.distanceM < 60) punto = pointAt(this.path, this.cum, pr.alongM + 60);
       const calle = this.nextStepStreet();
+      pendiente = {
+        lat: punto[0],
+        lng: punto[1],
+        descripcion: calle ? `Calle cerrada en ${calle}` : 'Calle cerrada',
+        duracion_h: this.closureHours(),
+        route_id: this.routeId
+      };
       await this.routing.reportClosure({
         lat: punto[0],
         lng: punto[1],
@@ -567,7 +577,12 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       await this.loadGuide('cierre');
     } catch (e) {
       this.closureSheet.set(false);
-      this.flash(apiErrorMessage(e, 'No se pudo reportar la calle cerrada'), 'bad');
+      if (isNetworkError(e) && pendiente) {
+        // Sin señal: el aviso queda guardado y se envía solo. La ruta alterna necesita conexión.
+        await this.queue.addJson('/traffic/cierre', pendiente, 'Calle cerrada');
+        this.flash('Sin señal: el aviso de calle cerrada se enviará al volver la conexión. Busca un desvío por tu cuenta.', 'warn', 12000);
+        this.voice.speak('Sin señal. El aviso de calle cerrada se enviará cuando vuelva la conexión.');
+      } else this.flash(apiErrorMessage(e, 'No se pudo reportar la calle cerrada'), 'bad');
     } finally {
       this.reporting.set(false);
     }

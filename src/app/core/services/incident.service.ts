@@ -4,6 +4,7 @@ import { ApiService } from '../api/api.service';
 import { Incident, IncidentSeverity, IncidentStatus } from '../models/incident.model';
 import { apiErrorMessage } from '../utils/api-error.util';
 import { FleetService } from './fleet.service';
+import { OfflineQueueService, isNetworkError, newClientId } from './offline-queue.service';
 
 export interface IncidentFilters {
   estado: IncidentStatus | 'todos';
@@ -28,6 +29,7 @@ export interface CreateIncidentInput {
 @Injectable({ providedIn: 'root' })
 export class IncidentService {
   private readonly api = inject(ApiService);
+  private readonly queue = inject(OfflineQueueService);
   private readonly fleet = inject(FleetService);
 
   private readonly _incidents = signal<readonly Incident[]>([]);
@@ -77,10 +79,10 @@ export class IncidentService {
     return { total, altaSev, ...counts };
   }
 
-  async create(input: CreateIncidentInput): Promise<{ ok: boolean; error?: string }> {
+  async create(input: CreateIncidentInput): Promise<{ ok: boolean; error?: string; queued?: boolean }> {
     await this.fleet.load();
-    const vehicle = this.fleet.getByPlaca(input.placa);
-    if (!vehicle) {
+    // Sin señal la lista de unidades puede no haber cargado: en ese caso el servidor valida la placa al enviar.
+    if (this.fleet.vehicles().length && !this.fleet.getByPlaca(input.placa)) {
       return { ok: false, error: `Vehículo ${input.placa} no encontrado.` };
     }
 
@@ -99,11 +101,33 @@ export class IncidentService {
       form.append('audio', input.audio, 'audio.webm');
     }
 
+    form.append('client_id', newClientId());
+
     try {
       await this.api.postForm('/incidents', form);
       await this.load(true);
       return { ok: true };
     } catch (e) {
+      if (isNetworkError(e)) {
+        // Sin señal: el reporte queda guardado en el celular (con fotos y audio) y se envía solo.
+        await this.queue.addIncident(
+          {
+            titulo: input.titulo,
+            placa: input.placa,
+            categoria: input.categoria,
+            severidad: input.severidad,
+            ubicacion: input.ubicacion,
+            descripcion: input.descripcion,
+            esPanico: input.esPanico ?? false,
+            lat: input.lat,
+            lng: input.lng,
+            photos: (input.photos ?? []).map((f) => ({ name: f.name, blob: f })),
+            audio: input.audio ?? null
+          },
+          input.esPanico ? 'Alerta de pánico' : `Incidencia: ${input.titulo}`
+        );
+        return { ok: true, queued: true };
+      }
       return { ok: false, error: apiErrorMessage(e, 'No se pudo registrar la incidencia') };
     }
   }

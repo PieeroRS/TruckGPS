@@ -10,7 +10,7 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
         .map((item) => (typeof item === 'object' && item && 'msg' in item ? String(item.msg) : JSON.stringify(item)))
         .join('; ');
     }
-    if (err.status === 0) return 'No se pudo conectar con el servidor. ¿Está corriendo el backend en el puerto 8000?';
+    if (err.status === 0) return 'Sin conexión con el servidor. Revisa tu señal de internet e inténtalo de nuevo.';
     if (err.status === 401) return 'Sesión expirada. Vuelve a iniciar sesión.';
   }
   if (err instanceof Error && err.message) return err.message;

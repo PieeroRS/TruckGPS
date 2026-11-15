@@ -1,5 +1,6 @@
 import { ConfirmService } from '../core/services/confirm.service';
-import { Injectable, Injector, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Injectable, Injector, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { ApiService } from '../core/api/api.service';
@@ -14,6 +15,13 @@ export type UserProfile = {
   telefono?: string | null;
   licencia?: string | null;
 };
+
+const PROFILE_KEY = 'truckgps_profile';
+
+/** El servidor dijo que la sesión ya no vale (no es un problema de conexión). */
+function sessionRejected(e: unknown): boolean {
+  return e instanceof HttpErrorResponse && (e.status === 401 || e.status === 403);
+}
 
 type LoginResponse = {
   access_token: string;
@@ -31,6 +39,51 @@ export class AuthService {
   readonly isLoggedIn = signal(false);
   readonly profile = signal<UserProfile | null>(null);
   readonly useBackend = true;
+
+  private validatedAt = 0;
+  private validating: Promise<boolean> | null = null;
+  /** El perfil se guarda en el equipo para poder abrir la app sin señal. */
+  private readonly persistProfile = effect(() => {
+    const p = this.profile();
+    try {
+      if (p) localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+    } catch {
+      /* almacenamiento lleno o bloqueado */
+    }
+  });
+
+  private cachedProfile(): UserProfile | null {
+    try {
+      const raw = localStorage.getItem(PROFILE_KEY);
+      return raw ? (JSON.parse(raw) as UserProfile) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Consulta el perfil al servidor. Sin conexión no se cierra la sesión: se sigue con el perfil guardado. */
+  private validate(): Promise<boolean> {
+    this.validating ??= (async () => {
+      try {
+        const profile = await this.api.get<UserProfile>('/auth/me');
+        this.profile.set(profile);
+        this.isLoggedIn.set(true);
+        this.validatedAt = Date.now();
+        return true;
+      } catch (e) {
+        if (sessionRejected(e)) {
+          const estaba = this.isLoggedIn();
+          this.clearSession();
+          if (estaba) void this.router.navigate(['/login']);
+          return false;
+        }
+        return this.isLoggedIn();
+      } finally {
+        this.validating = null;
+      }
+    })();
+    return this.validating;
+  }
 
   isStaff(): boolean {
     const role = this.profile()?.role;
@@ -55,13 +108,7 @@ export class AuthService {
 
   async refreshProfile(): Promise<void> {
     if (!localStorage.getItem(TOKEN_KEY)) return;
-    try {
-      const profile = await this.api.get<UserProfile>('/auth/me');
-      this.profile.set(profile);
-      this.isLoggedIn.set(true);
-    } catch {
-      this.clearSession();
-    }
+    await this.validate();
   }
 
   async updateOwnProfile(
@@ -87,15 +134,16 @@ export class AuthService {
       this.clearSession(false);
       return false;
     }
-    try {
-      const profile = await this.api.get<UserProfile>('/auth/me');
-      this.profile.set(profile);
+    if (!this.profile()) {
+      // Al abrir la app: con un perfil guardado se entra de inmediato, aunque no haya señal.
+      const guardado = this.cachedProfile();
+      if (!guardado) return this.validate();
+      this.profile.set(guardado);
       this.isLoggedIn.set(true);
-      return true;
-    } catch {
-      this.clearSession();
-      return false;
     }
+    // Ya hay sesión: no se bloquea la navegación; se revalida en segundo plano cada minuto.
+    if (Date.now() - this.validatedAt > 60_000) void this.validate();
+    return true;
   }
 
   async login(identifier: string, password: string): Promise<{ ok: boolean; error?: string }> {
@@ -105,6 +153,7 @@ export class AuthService {
         password
       });
       localStorage.setItem(TOKEN_KEY, data.access_token);
+      this.validatedAt = Date.now();
       this.profile.set(data.profile);
       this.isLoggedIn.set(true);
       try {
@@ -140,6 +189,8 @@ export class AuthService {
 
   private clearSession(removeToken = true): void {
     if (removeToken) localStorage.removeItem(TOKEN_KEY);
+    if (removeToken) localStorage.removeItem(PROFILE_KEY);
+    this.validatedAt = 0;
     this.isLoggedIn.set(false);
     this.profile.set(null);
   }
