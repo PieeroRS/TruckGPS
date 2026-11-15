@@ -40,6 +40,16 @@ export const routes: Routes = [
           import('./features/rutas/rutas-page.component').then((m) => m.RutasPageComponent)
       },
       {
+        path: 'navegar',
+        loadComponent: () =>
+          import('./features/navegar/navegar-page.component').then((m) => m.NavegarPageComponent)
+      },
+      {
+        path: 'navegar/:id',
+        loadComponent: () =>
+          import('./features/navegar/navegar-page.component').then((m) => m.NavegarPageComponent)
+      },
+      {
         path: 'mapa-vivo',
         data: { modulo: 'mapa-vivo' },
         canActivate: [moduleGuard],

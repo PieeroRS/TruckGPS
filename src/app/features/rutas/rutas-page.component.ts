@@ -15,8 +15,11 @@ import {
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as L from 'leaflet';
+import { Router } from '@angular/router';
 import {
   ArrowLeftRight,
+  Ban,
+  Clock,
   Crosshair,
   History,
   Loader2,
@@ -26,7 +29,10 @@ import {
   MousePointerClick,
   Navigation,
   Route,
+  Star,
+  Trash2,
   Truck,
+  Volume2,
   X
 } from 'lucide-angular';
 import { Subject } from 'rxjs';
@@ -38,6 +44,7 @@ import {
   NavRouteStatus,
   PERU_CITIES,
   RoutePlan,
+  TrafficEvent,
   TrafficStatus,
   statusBadge,
   statusLabel
@@ -45,6 +52,8 @@ import {
 import { FleetService } from '../../core/services/fleet.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { NavRoutesService } from '../../core/services/nav-routes.service';
+import { NavSessionService } from '../../core/services/nav-session.service';
+import { PlaceResult, PlacesService, formatDistance } from '../../core/services/places.service';
 import { RoutingService } from '../../core/services/routing.service';
 import { createOsmMap } from '../../core/utils/map.utils';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
@@ -101,8 +110,14 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                   <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100" (mousedown)="$event.preventDefault()" (click)="startMapPick('origin')">
                     <lucide-icon [img]="pickIcon" [size]="14" /> Elegir el punto en el mapa
                   </button>
-                  @for (p of originSuggestions(); track p.name) {
-                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (mousedown)="$event.preventDefault()" (click)="pickOrigin(p)">{{ p.name }}</button>
+                  @for (p of originSuggestions(); track $index) {
+                    <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-start gap-2" (mousedown)="$event.preventDefault()" (click)="pickOrigin(p)">
+                      <lucide-icon [img]="kindIcon(p)" [size]="13" class="mt-0.5 shrink-0" [class]="p.kind === 'saved' ? 'text-amber-500' : 'text-slate-400'" />
+                      <span class="min-w-0 flex-1">
+                        <span class="block text-xs font-medium text-slate-900 truncate">{{ p.name }}</span>
+                        @if (p.detail) { <span class="block text-[10.5px] text-slate-500 truncate">{{ p.detail }}</span> }
+                      </span>
+                    </button>
                   }
                 </div>
               }
@@ -125,17 +140,58 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                 placeholder="¿A dónde vas?"
                 [(ngModel)]="destQuery"
                 (ngModelChange)="onDestSearch($event)"
-                (focus)="activeField.set('dest')"
+                (focus)="onDestFocus()"
                 (blur)="closeSuggestionsSoon('dest')"
+                (keydown.enter)="pickFirstDest()"
+                autocomplete="off"
+                enterkeyhint="search"
               />
               @if (activeField() === 'dest') {
-                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-56 overflow-y-auto">
-                  <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2" [class.border-b]="destSuggestions().length" [class.border-slate-100]="destSuggestions().length" (mousedown)="$event.preventDefault()" (click)="startMapPick('dest')">
+                <div class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-72 overflow-y-auto">
+                  @if (destSearching()) {
+                    <div class="px-3 py-2 text-[11px] text-blue-600 flex items-center gap-2 border-b border-slate-100">
+                      <lucide-icon [img]="loaderIcon" [size]="12" class="animate-spin" /> Buscando «{{ destQuery.trim() }}»…
+                    </div>
+                  }
+                  @if (destCategory(); as cat) {
+                    <p class="px-3 pt-2 pb-1 text-[10.5px] text-slate-500 leading-snug">
+                      No encontramos «{{ destQuery.trim() }}» en el mapa. <strong class="text-slate-700">{{ cat }}:</strong>
+                    </p>
+                  }
+                  @if (!destQuery.trim() && destSuggestions().length) {
+                    <p class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Guardados y recientes</p>
+                  }
+                  @for (p of destSuggestions(); track $index) {
+                    <div class="flex items-stretch hover:bg-slate-50">
+                      <button type="button" class="flex-1 min-w-0 text-left px-3 py-2 flex items-start gap-2" (mousedown)="$event.preventDefault()" (click)="pickDest(p)">
+                        <lucide-icon [img]="kindIcon(p)" [size]="14" class="mt-0.5 shrink-0" [class]="p.kind === 'saved' ? 'text-amber-500' : p.kind === 'recent' ? 'text-slate-400' : 'text-red-500'" />
+                        <span class="min-w-0 flex-1">
+                          <span class="block text-xs font-medium text-slate-900 truncate">
+                            {{ p.name }}
+                            @if (p.kind === 'saved' && p.shared) { <span class="ml-1 text-[9px] font-semibold text-blue-700 bg-blue-50 px-1 py-0.5 rounded">Empresa</span> }
+                          </span>
+                          @if (p.detail) { <span class="block text-[10.5px] text-slate-500 truncate">{{ p.detail }}</span> }
+                        </span>
+                        @if (p.distanceM != null) { <span class="text-[10px] text-slate-400 shrink-0 mt-0.5 tnum">{{ dist(p.distanceM) }}</span> }
+                      </button>
+                      @if (p.kind === 'saved' && p.mine && p.id) {
+                        <button type="button" class="px-2 text-slate-300 hover:text-red-600" title="Borrar lugar guardado" aria-label="Borrar lugar guardado" (mousedown)="$event.preventDefault()" (click)="removeSaved(p)">
+                          <lucide-icon [img]="trashIcon" [size]="13" />
+                        </button>
+                      }
+                    </div>
+                  }
+                  @if (destNoResults()) {
+                    <p class="px-3 py-2 text-[11px] text-slate-600 leading-snug">
+                      No encontramos «{{ destQuery.trim() }}». Los negocios pequeños a veces no están en el mapa: prueba con la <strong>calle y el distrito</strong>, o marca el punto y guárdalo con un nombre.
+                    </p>
+                  }
+                  @if (destError(); as err) {
+                    <p class="px-3 py-2 text-[11px] text-red-600">{{ err }}</p>
+                  }
+                  <button type="button" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 flex items-center gap-2 border-t border-slate-100" (mousedown)="$event.preventDefault()" (click)="startMapPick('dest')">
                     <lucide-icon [img]="pickIcon" [size]="14" /> Elegir el punto en el mapa
                   </button>
-                  @for (p of destSuggestions(); track p.name) {
-                    <button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" (mousedown)="$event.preventDefault()" (click)="pickDest(p)">{{ p.name }}</button>
-                  }
                 </div>
               }
             </div>
@@ -146,6 +202,30 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
               <lucide-icon [img]="crosshairIcon" [size]="12" class="mt-0.5 shrink-0" />
               <span>{{ info.text }}</span>
             </p>
+          }
+          @if (destination(); as d) {
+            @if (savingPlace()) {
+              <div class="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 space-y-2 -mt-1">
+                <label class="text-[11px] font-semibold text-slate-700" for="sp-name">Nombre para encontrar este lugar</label>
+                <input id="sp-name" class="input text-sm" maxlength="80" placeholder="Ej. Casa, Almacén Callao, Cliente Gloria" [(ngModel)]="placeName" name="placeName" (keydown.enter)="savePlace()" />
+                @if (auth.isStaff()) {
+                  <label class="flex items-center gap-2 text-[11px] text-slate-600">
+                    <input type="checkbox" class="accent-blue-600" [(ngModel)]="placeShared" name="placeShared" /> Compartir con toda la empresa (conductores incluidos)
+                  </label>
+                }
+                <div class="flex gap-2">
+                  <button type="button" class="flex-1 py-1.5 rounded-lg ring-1 ring-slate-200 bg-white text-[11.5px] font-semibold text-slate-700" (click)="savingPlace.set(false)">Cancelar</button>
+                  <button type="button" class="flex-1 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11.5px] font-semibold disabled:opacity-50" [disabled]="!placeName.trim()" (click)="savePlace()">Guardar lugar</button>
+                </div>
+              </div>
+            } @else if (!isSaved(d)) {
+              <button type="button" class="text-[11px] font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1.5 -mt-1" (click)="startSavePlace()">
+                <lucide-icon [img]="starIcon" [size]="12" /> Guardar este destino (Casa, cliente…) para encontrarlo por nombre
+              </button>
+            }
+          }
+          @if (placeMsg(); as m) {
+            <p class="text-[11px] text-emerald-700 -mt-1">{{ m }}</p>
           }
           @if (plan()) {
             <p class="text-[11px] text-slate-500 -mt-1">Puedes arrastrar los puntos verde y rojo en el mapa para ajustar el origen o el destino.</p>
@@ -205,6 +285,19 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                 </div>
               }
             </div>
+
+            @if (p.cierresEvitados?.length) {
+              <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11.5px] text-emerald-800 flex items-start gap-2">
+                <lucide-icon [img]="banIcon" [size]="13" class="mt-0.5 shrink-0" />
+                <span>Esta ruta <strong>rodea {{ p.cierresEvitados!.length === 1 ? 'una calle cerrada' : p.cierresEvitados!.length + ' calles cerradas' }}</strong> reportada{{ p.cierresEvitados!.length === 1 ? '' : 's' }} en el camino.</span>
+              </div>
+            }
+            @if (p.pasaPorCierre) {
+              <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11.5px] text-red-700 flex items-start gap-2">
+                <lucide-icon [img]="banIcon" [size]="13" class="mt-0.5 shrink-0" />
+                <span>Esta ruta <strong>pasa por una calle cerrada</strong> y no se encontró cómo rodearla. Revisa el mapa o elige otra alternativa.</span>
+              </div>
+            }
 
             @if (p.historico; as h) {
               <div class="rounded-xl ring-1 ring-violet-200 bg-violet-50/60 p-3.5 fade-in-up">
@@ -317,6 +410,13 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
               }
               Solicitar ruta
             </button>
+            <button
+              type="button"
+              class="w-full py-3 rounded-xl ring-1 ring-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold text-sm flex items-center justify-center gap-2"
+              (click)="navigateNow()"
+            >
+              <lucide-icon [img]="voiceIcon" [size]="17" /> Ir ahora con guía por voz
+            </button>
           }
 
           @if (formError()) {
@@ -332,6 +432,26 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
               </span>
             </div>
           }
+
+          <div class="rounded-lg border border-slate-200 px-3 py-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-[12px] font-semibold text-slate-800 flex items-center gap-1.5">
+                <lucide-icon [img]="banIcon" [size]="13" class="text-red-600" /> Calles cerradas
+                <span class="text-[10.5px] font-medium text-slate-500">({{ closures().length }})</span>
+              </p>
+              <button type="button" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 hover:bg-red-100" (click)="startClosurePick()">Reportar calle cerrada</button>
+            </div>
+            <p class="text-[10.5px] text-slate-500 mt-1 leading-snug">Marca en el mapa una calle cerrada (obra, feria, accidente). Las rutas la rodean hasta que venza o alguien la reabra.</p>
+            @for (c of closures(); track c.id) {
+              <div class="flex items-center gap-2 mt-2 text-[11px]">
+                <button type="button" class="flex-1 min-w-0 text-left hover:text-blue-700" (click)="focusClosure(c)">
+                  <span class="block font-medium text-slate-800 truncate">{{ c.descripcion }}</span>
+                  <span class="block text-[10px] text-slate-500 truncate">{{ c.reportadoPor ? 'Reportó ' + c.reportadoPor + ' · ' : '' }}vence {{ c.expira | date: 'dd/MM HH:mm' }}</span>
+                </button>
+                <button type="button" class="shrink-0 text-[10px] font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800" (click)="reopenClosure(c)">Ya está abierta</button>
+              </div>
+            }
+          </div>
 
           <!-- Lista de rutas -->
           <div class="pt-2">
@@ -361,6 +481,11 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                       <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-2">
                         <div class="h-full bg-emerald-500 transition-all duration-700" [style.width.%]="r.progressPct"></div>
                       </div>
+                    }
+                    @if (!isSimLoop(r) && (r.status === 'en-curso' || r.status === 'asignada')) {
+                      <button type="button" class="mb-2 text-[10.5px] font-semibold px-2.5 py-1 rounded bg-blue-600 text-white inline-flex items-center gap-1" (click)="navigateRoute(r, $event)">
+                        <lucide-icon [img]="voiceIcon" [size]="11" /> Navegar con voz
+                      </button>
                     }
                     @if (isSimLoop(r)) {
                       <p class="text-[10.5px] text-violet-700">Circuito permanente de la unidad de prueba. Se controla desde el Simulador.</p>
@@ -392,13 +517,33 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
         @if (pickMode(); as mode) {
           <div class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900 text-white px-4 py-2 rounded-full text-xs shadow-lg flex items-center gap-2">
             <lucide-icon [img]="pickIcon" [size]="14" />
-            Toca el mapa para elegir el {{ mode === 'origin' ? 'origen' : 'destino' }}
+            {{ mode === 'cierre' ? 'Toca en el mapa la calle que está cerrada' : 'Toca el mapa para elegir el ' + (mode === 'origin' ? 'origen' : 'destino') }}
             <button type="button" class="ml-1 p-0.5 rounded-full hover:bg-white/20" aria-label="Cancelar" (click)="pickMode.set(null)">
               <lucide-icon [img]="xIcon" [size]="13" />
             </button>
           </div>
         }
-        @if (!plan() && !selectedRouteId() && !pickMode()) {
+        @if (closureDraft(); as cd) {
+          <div class="absolute bottom-3 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[380px] z-[600] bg-white rounded-2xl shadow-2xl ring-1 ring-slate-200 p-4">
+            <p class="text-[13.5px] font-semibold text-slate-900 flex items-center gap-2">
+              <lucide-icon [img]="banIcon" [size]="15" class="text-red-600" /> Reportar calle cerrada
+            </p>
+            <p class="text-[11.5px] text-slate-500 mt-0.5 truncate">{{ cd.name }}</p>
+            <label class="input-label mt-3" for="cl-desc">Motivo (opcional)</label>
+            <input id="cl-desc" class="input text-sm" maxlength="120" placeholder="Obra, feria, accidente, vía rota…" [(ngModel)]="closureDesc" name="closureDesc" />
+            <p class="input-label mt-3">¿Cuánto tiempo estará cerrada?</p>
+            <div class="grid grid-cols-4 gap-1.5">
+              @for (o of closureOptions; track o.h) {
+                <button type="button" class="py-1.5 rounded-lg text-[11px] font-semibold ring-1" [class]="closureHours === o.h ? 'bg-red-600 text-white ring-red-600' : 'bg-white text-slate-700 ring-slate-200'" (click)="closureHours = o.h">{{ o.label }}</button>
+              }
+            </div>
+            <div class="flex gap-2 mt-4">
+              <button type="button" class="flex-1 py-2.5 rounded-lg ring-1 ring-slate-200 text-slate-700 text-[13px] font-semibold" [disabled]="closureSaving()" (click)="cancelClosure()">Cancelar</button>
+              <button type="button" class="flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[13px] font-semibold disabled:opacity-50" [disabled]="closureSaving()" (click)="submitClosure()">{{ closureSaving() ? 'Reportando…' : 'Reportar cierre' }}</button>
+            </div>
+          </div>
+        }
+        @if (!plan() && !selectedRouteId() && !pickMode() && !closureDraft()) {
           <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur px-4 py-2 rounded-full text-xs text-slate-600 shadow-lg border border-slate-200 flex items-center gap-2">
             <lucide-icon [img]="mapPinIcon" [size]="14" class="text-blue-600" />
             Elige origen y destino para ver la ruta
@@ -432,7 +577,40 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly xIcon = X;
 
   readonly locating = signal(false);
-  readonly pickMode = signal<'origin' | 'dest' | null>(null);
+  readonly pickMode = signal<'origin' | 'dest' | 'cierre' | null>(null);
+  readonly banIcon = Ban;
+  readonly starIcon = Star;
+  readonly clockIcon = Clock;
+  readonly trashIcon = Trash2;
+  readonly voiceIcon = Volume2;
+
+  private readonly places = inject(PlacesService);
+  private readonly router = inject(Router);
+  private readonly navSession = inject(NavSessionService);
+
+  readonly destSearching = signal(false);
+  readonly destCategory = signal<string | null>(null);
+  readonly destNoResults = signal(false);
+  readonly destError = signal<string | null>(null);
+  private destSearchSeq = 0;
+
+  readonly savingPlace = signal(false);
+  readonly placeMsg = signal<string | null>(null);
+  placeName = '';
+  placeShared = false;
+
+  readonly closures = computed<TrafficEvent[]>(() => (this.traffic()?.eventos ?? []).filter((e) => e.nivel === 'cierre'));
+  readonly closureDraft = signal<{ lat: number; lng: number; name: string } | null>(null);
+  readonly closureSaving = signal(false);
+  readonly closureOptions = [
+    { h: 2, label: '2 horas' },
+    { h: 12, label: 'Hoy' },
+    { h: 72, label: '3 días' },
+    { h: 168, label: '1 semana' }
+  ];
+  closureHours = 12;
+  closureDesc = '';
+  private closureMarker: L.Marker | null = null;
   readonly originInfo = signal<{ text: string; warn: boolean } | null>(null);
   private blurTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -444,8 +622,8 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   destQuery = '';
   origin = signal<GeoPlace | null>(null);
   destination = signal<GeoPlace | null>(null);
-  originSuggestions = signal<GeoPlace[]>([]);
-  destSuggestions = signal<GeoPlace[]>([]);
+  originSuggestions = signal<PlaceResult[]>([]);
+  destSuggestions = signal<PlaceResult[]>([]);
   activeField = signal<'origin' | 'dest' | null>(null);
 
   readonly plans = signal<RoutePlan[]>([]);
@@ -493,6 +671,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     // «Desde» parte de tu ubicación actual, como en las apps de transporte.
     void this.autoLocateOrigin();
     void this.loadTraffic();
+    void this.places.loadSaved();
     // Progreso de rutas en curso y eventos de tráfico.
     this.poll = setInterval(() => {
       if (document.hidden) return;
@@ -513,6 +692,10 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.trafficLayer) return;
     this.trafficLayer.clearLayers();
     for (const ev of t?.eventos ?? []) {
+      if (ev.nivel === 'cierre') {
+        this.drawClosure(ev);
+        continue;
+      }
       const color = ev.nivel === 'bloqueo' ? '#7f1d1d' : ev.nivel === 'congestionado' ? '#dc2626' : '#f59e0b';
       L.circle([ev.lat, ev.lng], { radius: ev.radioM, color, weight: 2, fillColor: color, fillOpacity: 0.2, dashArray: '4 4' })
         .bindTooltip(`<strong>${ev.descripcion}</strong><br/>${ev.nivel}${ev.simulado ? ' · simulado' : ''}`)
@@ -582,7 +765,187 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const mode = this.pickMode();
     if (!mode) return;
     this.pickMode.set(null);
+    if (mode === 'cierre') {
+      await this.draftClosure(lat, lng);
+      return;
+    }
     await this.setPoint(mode, lat, lng);
+  }
+
+  // ─────────────── calles cerradas ───────────────
+
+  private closureIcon(): L.DivIcon {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:26px;height:26px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 2px 6px rgba(15,23,42,.4);display:flex;align-items:center;justify-content:center"><div style="width:13px;height:4px;border-radius:2px;background:#fff"></div></div>',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13]
+    });
+  }
+
+  private drawClosure(ev: TrafficEvent): void {
+    if (!this.trafficLayer) return;
+    const vence = ev.expira ? new Date(ev.expira).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    const box = document.createElement('div');
+    box.style.minWidth = '170px';
+    const title = document.createElement('strong');
+    title.textContent = ev.descripcion;
+    const info = document.createElement('div');
+    info.style.cssText = 'font-size:11px;color:#475569;margin:2px 0 8px';
+    info.textContent = `Calle cerrada${ev.reportadoPor ? ' · reportó ' + ev.reportadoPor : ''}${vence ? ' · vence ' + vence : ''}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Ya está abierta';
+    btn.style.cssText = 'font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;background:#d1fae5;color:#065f46;border:0;cursor:pointer';
+    btn.addEventListener('click', () => void this.reopenClosure(ev));
+    box.append(title, info, btn);
+    L.circle([ev.lat, ev.lng], { radius: ev.radioM, color: '#dc2626', weight: 1.5, fillColor: '#dc2626', fillOpacity: 0.18, interactive: false }).addTo(this.trafficLayer);
+    L.marker([ev.lat, ev.lng], { icon: this.closureIcon(), zIndexOffset: 400 }).bindPopup(box).bindTooltip(`Calle cerrada: ${ev.descripcion}`).addTo(this.trafficLayer);
+  }
+
+  startClosurePick(): void {
+    this.activeField.set(null);
+    this.closureDraft.set(null);
+    this.pickMode.set('cierre');
+    const ref = this.origin() ?? this.destination();
+    if (this.map && ref && this.map.getZoom() < 15) this.map.setView([ref.lat, ref.lng], 16);
+  }
+
+  private async draftClosure(lat: number, lng: number): Promise<void> {
+    this.closureMarker?.remove();
+    if (this.map) this.closureMarker = L.marker([lat, lng], { icon: this.closureIcon(), zIndexOffset: 900 }).addTo(this.map);
+    this.closureDesc = '';
+    this.closureHours = 12;
+    this.closureDraft.set({ lat, lng, name: 'Buscando la calle…' });
+    const name = await this.routing.reverseGeocode(lat, lng);
+    if (this.closureDraft()?.lat === lat) this.closureDraft.set({ lat, lng, name });
+  }
+
+  cancelClosure(): void {
+    this.closureMarker?.remove();
+    this.closureMarker = null;
+    this.closureDraft.set(null);
+  }
+
+  async submitClosure(): Promise<void> {
+    const cd = this.closureDraft();
+    if (!cd) return;
+    this.closureSaving.set(true);
+    this.formError.set(null);
+    try {
+      const calle = cd.name.split(',')[0];
+      const motivo = this.closureDesc.trim();
+      const res = await this.routing.reportClosure({
+        lat: cd.lat,
+        lng: cd.lng,
+        descripcion: motivo ? `${calle}: ${motivo}` : `Calle cerrada en ${calle}`,
+        duracionH: this.closureHours
+      });
+      this.cancelClosure();
+      this.placeMsg.set(
+        res.confirmado
+          ? 'Ese cierre ya estaba reportado: se confirmó y se extendió su vigencia.'
+          : 'Calle cerrada reportada. Las rutas nuevas la rodean' + (res.unidadesAfectadas.length ? ` y se avisó a ${res.unidadesAfectadas.join(', ')}.` : '.')
+      );
+      setTimeout(() => this.placeMsg.set(null), 6000);
+      await this.loadTraffic();
+      if (this.origin() && this.destination()) await this.tryPlan();
+    } catch (e) {
+      this.formError.set(apiErrorMessage(e, 'No se pudo reportar la calle cerrada'));
+    } finally {
+      this.closureSaving.set(false);
+    }
+  }
+
+  focusClosure(c: TrafficEvent): void {
+    this.map?.setView([c.lat, c.lng], 17);
+  }
+
+  async reopenClosure(c: TrafficEvent): Promise<void> {
+    if (!(await this.confirmDialog.ask(`¿Confirmas que «${c.descripcion}» ya está abierta? Las rutas volverán a pasar por ahí.`, { okLabel: 'Sí, está abierta', danger: false }))) return;
+    try {
+      await this.routing.reopenClosure(c.id);
+      this.map?.closePopup();
+      await this.loadTraffic();
+      if (this.origin() && this.destination()) await this.tryPlan();
+    } catch (e) {
+      this.formError.set(apiErrorMessage(e, 'No se pudo reabrir la calle'));
+    }
+  }
+
+  // ─────────────── lugares guardados y navegación ───────────────
+
+  kindIcon(p: PlaceResult) {
+    return p.kind === 'saved' ? this.starIcon : p.kind === 'recent' ? this.clockIcon : this.mapPinIcon;
+  }
+
+  dist(m: number): string {
+    return formatDistance(m);
+  }
+
+  onDestFocus(): void {
+    this.activeField.set('dest');
+    if (!this.destQuery.trim()) this.showShortcuts();
+  }
+
+  private showShortcuts(): void {
+    this.destCategory.set(null);
+    this.destNoResults.set(false);
+    this.destError.set(null);
+    this.destSuggestions.set(this.places.shortcuts(this.origin()));
+  }
+
+  pickFirstDest(): void {
+    const first = this.destSuggestions()[0];
+    if (first && !this.destSearching()) this.pickDest(first);
+  }
+
+  isSaved(d: GeoPlace): boolean {
+    return this.places.saved().some((s) => Math.abs(s.lat - d.lat) < 0.0003 && Math.abs(s.lng - d.lng) < 0.0003);
+  }
+
+  startSavePlace(): void {
+    this.placeName = '';
+    this.placeShared = false;
+    this.savingPlace.set(true);
+  }
+
+  async savePlace(): Promise<void> {
+    const d = this.destination();
+    if (!d || !this.placeName.trim()) return;
+    try {
+      const saved = await this.places.save(this.placeName, { name: d.name, lat: d.lat, lng: d.lng }, this.placeShared);
+      this.savingPlace.set(false);
+      this.placeMsg.set(`«${saved.nombre}» guardado. La próxima vez escribe su nombre en «¿A dónde vas?».`);
+      setTimeout(() => this.placeMsg.set(null), 6000);
+    } catch (e) {
+      this.formError.set(apiErrorMessage(e, 'No se pudo guardar el lugar'));
+    }
+  }
+
+  async removeSaved(p: PlaceResult): Promise<void> {
+    if (!p.id) return;
+    if (!(await this.confirmDialog.ask(`¿Borrar el lugar guardado «${p.name}»?`, { okLabel: 'Borrar' }))) return;
+    try {
+      await this.places.remove(p.id);
+      this.showShortcuts();
+    } catch (e) {
+      this.formError.set(apiErrorMessage(e, 'No se pudo borrar el lugar'));
+    }
+  }
+
+  /** Abre la navegación con voz hacia el destino elegido (sin crear una ruta). */
+  navigateNow(): void {
+    const d = this.destination();
+    if (!d) return;
+    this.navSession.target.set({ dest: d, label: d.name.split(',')[0] });
+    void this.router.navigate(['/navegar']);
+  }
+
+  navigateRoute(r: NavRoute, ev: Event): void {
+    ev.stopPropagation();
+    this.navSession.target.set({ dest: { name: r.destName, lat: r.destLat, lng: r.destLng }, routeId: r.id, label: r.routeLabel });
+    void this.router.navigate(['/navegar', r.id]);
   }
 
   /** Fija origen o destino en un punto exacto (clic en el mapa o marcador arrastrado). */
@@ -683,30 +1046,46 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async searchOrigin(q: string): Promise<void> {
-    if (q.length < 2) {
+    if (q.trim().length < 2) {
       this.originSuggestions.set([]);
       return;
     }
     try {
-      this.originSuggestions.set(await this.routing.searchPlaces(q));
+      this.originSuggestions.set((await this.places.search(q, this.destination() ?? this.origin())).results);
     } catch {
       this.originSuggestions.set([]);
     }
   }
 
   async searchDest(q: string): Promise<void> {
-    if (q.length < 2) {
-      this.destSuggestions.set([]);
+    const seq = ++this.destSearchSeq;
+    this.destError.set(null);
+    if (q.trim().length < 2) {
+      this.destSearching.set(false);
+      this.showShortcuts();
       return;
     }
+    this.destSearching.set(true);
+    this.destNoResults.set(false);
     try {
-      this.destSuggestions.set(await this.routing.searchPlaces(q));
-    } catch {
+      // Se busca primero cerca del origen (tu ubicación), como en las apps de navegación.
+      const out = await this.places.search(q, this.origin());
+      if (seq !== this.destSearchSeq) return;
+      this.destSuggestions.set(out.results);
+      this.destCategory.set(out.categoryLabel ?? null);
+      this.destNoResults.set(out.results.length === 0);
+    } catch (e) {
+      if (seq !== this.destSearchSeq) return;
       this.destSuggestions.set([]);
+      this.destCategory.set(null);
+      this.destError.set(e instanceof Error ? e.message : 'No se pudo buscar');
+    } finally {
+      if (seq === this.destSearchSeq) this.destSearching.set(false);
     }
   }
 
   pickOrigin(p: GeoPlace): void {
+    p = this.asPlace(p);
     this.origin.set(p);
     this.originInfo.set(null);
     this.originQuery = p.name;
@@ -715,7 +1094,19 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     void this.tryPlan();
   }
 
+  /** Nombre completo para el campo: «Panadería X, Av. Perú, San Martín de Porres». */
+  private asPlace(p: GeoPlace | PlaceResult): GeoPlace {
+    const r = p as PlaceResult;
+    const name = r.kind && r.kind !== 'saved' && r.kind !== 'recent' && r.detail ? `${r.name}, ${r.detail}` : p.name;
+    return { name, lat: p.lat, lng: p.lng };
+  }
+
   pickDest(p: GeoPlace): void {
+    p = this.asPlace(p);
+    this.places.addRecent(p);
+    this.savingPlace.set(false);
+    this.destCategory.set(null);
+    this.destNoResults.set(false);
     this.destination.set(p);
     this.destQuery = p.name;
     this.destSuggestions.set([]);

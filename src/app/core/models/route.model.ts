@@ -18,6 +18,10 @@ export interface RoutePlan {
   trafficLevel?: 'fluido' | 'moderado' | 'congestionado';
   franja?: string;
   eventos?: { id: string; descripcion: string; nivel: string; demora_min: number }[];
+  /** Calles cerradas que esta ruta rodea. */
+  cierresEvitados?: { id: string; descripcion: string }[];
+  /** No se encontró cómo rodear una calle cerrada: la ruta pasa por ella. */
+  pasaPorCierre?: boolean;
   recomendada?: boolean;
   /** Tiempo predicho con el historial del corredor (misma franja horaria). */
   durationPredMin?: number;
@@ -44,12 +48,47 @@ export interface RouteHistoryStats {
 export interface TrafficEvent {
   id: string;
   descripcion: string;
-  nivel: 'moderado' | 'congestionado' | 'bloqueo';
+  nivel: 'moderado' | 'congestionado' | 'bloqueo' | 'cierre';
   lat: number;
   lng: number;
   radioM: number;
   simulado: boolean;
   expira: string | null;
+  creado?: string | null;
+  reportadoPor?: string | null;
+  reportadoPorId?: string | null;
+}
+
+/** Maniobra de la guía giro a giro. */
+export interface NavStep {
+  texto: string;
+  tipo: string;
+  mod: string;
+  calle: string;
+  lat: number | null;
+  lng: number | null;
+  /** Metros desde el inicio de la ruta hasta la maniobra. */
+  along_m: number;
+  distancia_m: number;
+}
+
+export interface ClosureBrief {
+  id: string;
+  descripcion: string;
+  lat: number;
+  lng: number;
+}
+
+export interface NavGuide {
+  geometry: [number, number][];
+  steps: NavStep[];
+  distanceKm: number;
+  durationMin: number;
+  durationTrafficMin: number;
+  cierresEvitados: ClosureBrief[];
+  cierresEnRuta: ClosureBrief[];
+  rutaActualizada: boolean;
+  destino: { lat: number; lng: number; nombre: string | null };
 }
 
 export interface TrafficStatus {
