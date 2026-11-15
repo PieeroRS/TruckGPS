@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 
 import { ApiService } from '../api/api.service';
-import { GeoPlace, RouteHistoryStats, RoutePlan, TrafficStatus } from '../models/route.model';
+import { GeoPlace, NavGuide, RouteHistoryStats, RoutePlan, TrafficEvent, TrafficStatus } from '../models/route.model';
 
 type PlanResponse = {
   rutas: {
@@ -11,6 +11,8 @@ type PlanResponse = {
     traffic_level: 'fluido' | 'moderado' | 'congestionado';
     franja: string;
     eventos: { id: string; descripcion: string; nivel: string; demora_min: number }[];
+    cierres_evitados?: { id: string; descripcion: string }[];
+    pasa_por_cierre?: boolean;
     recomendada: boolean;
     geometry: [number, number][];
     duration_pred_min?: number;
@@ -59,6 +61,8 @@ export class RoutingService {
           trafficLevel: r.traffic_level,
           franja: r.franja,
           eventos: r.eventos,
+          cierresEvitados: r.cierres_evitados ?? [],
+          pasaPorCierre: !!r.pasa_por_cierre,
           recomendada: r.recomendada,
           durationPredMin: r.duration_pred_min != null ? Math.round(r.duration_pred_min) : undefined,
           historico: res.historico ?? null,
@@ -69,6 +73,37 @@ export class RoutingService {
       // Sin backend de rutas: se usa OSRM directo desde el navegador (sin estimación de tráfico).
     }
     return [await this.planRoute(origin, destination)];
+  }
+
+  /** Guía giro a giro hasta el destino, rodeando las calles cerradas. */
+  guide(input: {
+    origin: { lat: number; lng: number };
+    routeId?: string | null;
+    dest?: { lat: number; lng: number } | null;
+    motivo?: 'inicio' | 'desvio' | 'cierre';
+  }): Promise<NavGuide> {
+    return this.api.post<NavGuide>('/nav-routes/guia', {
+      origin_lat: input.origin.lat,
+      origin_lng: input.origin.lng,
+      dest_lat: input.dest?.lat ?? null,
+      dest_lng: input.dest?.lng ?? null,
+      route_id: input.routeId ?? null,
+      motivo: input.motivo ?? 'inicio'
+    });
+  }
+
+  reportClosure(input: { lat: number; lng: number; descripcion?: string; duracionH: number; routeId?: string | null }): Promise<TrafficEvent & { confirmado: boolean; unidadesAfectadas: string[] }> {
+    return this.api.post('/traffic/cierre', {
+      lat: input.lat,
+      lng: input.lng,
+      descripcion: input.descripcion?.trim() || null,
+      duracion_h: input.duracionH,
+      route_id: input.routeId ?? null
+    });
+  }
+
+  reopenClosure(id: string): Promise<{ ok: boolean }> {
+    return this.api.delete(`/traffic/${id}`);
   }
 
   async trafficStatus(): Promise<TrafficStatus | null> {

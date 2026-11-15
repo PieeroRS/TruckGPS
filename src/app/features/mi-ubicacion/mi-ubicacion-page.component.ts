@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import * as L from 'leaflet';
 import { FormsModule } from '@angular/forms';
 import {
@@ -24,7 +25,7 @@ import { LayoutService } from '../../core/services/layout.service';
 @Component({
   standalone: true,
   selector: 'app-mi-ubicacion-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="p-3 sm:p-6 lg:p-8 flex justify-center">
       <div class="w-full max-w-md space-y-5">
@@ -115,6 +116,10 @@ import { LayoutService } from '../../core/services/layout.service';
               </button>
               <p class="text-[11px] text-slate-500">Inicia la ruta para que se vigilen los desvíos y se detecte la llegada.</p>
             }
+            <a [routerLink]="['/navegar', r.id]" class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-semibold flex items-center justify-center gap-2">
+              <lucide-icon [img]="navIcon" [size]="15" /> Navegar con voz
+            </a>
+            <p class="text-[11px] text-slate-500">Te guía giro a giro hablando y evita las calles cerradas reportadas.</p>
           </div>
         }
 
