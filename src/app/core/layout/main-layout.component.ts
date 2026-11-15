@@ -307,7 +307,7 @@ const STAFF_NAV = [
           </div>
         }
 
-        <main class="flex-1 min-h-0">
+        <main class="flex-1 min-h-0" [class.page-in-a]="pageTick() % 2 === 0" [class.page-in-b]="pageTick() % 2 === 1">
           <router-outlet />
         </main>
 
@@ -421,6 +421,7 @@ export class MainLayoutComponent {
   readonly drawerOpen = signal(false);
 
   private readonly url = signal(this.router.url);
+  readonly pageTick = signal(0);
   /** Accesos fijos del conductor en el celular (respetan los módulos que ocultó el administrador). */
   readonly bottomItems = computed(() => {
     const ve = (k: string) => this.settings.puedeVer(k);
@@ -443,6 +444,9 @@ export class MainLayoutComponent {
     this.watcher.start();
     void this.settings.loadInterfaz();
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
+      // Cambió de pantalla (no solo de parámetros): se repite la entrada suave del contenido.
+      const ruta = this.router.url.split('?')[0];
+      if (ruta !== this.url().split('?')[0]) this.pageTick.update((n) => n + 1);
       this.url.set(this.router.url);
       this.closeDrawer();
     });

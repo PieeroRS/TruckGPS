@@ -168,7 +168,11 @@ const ROLES: { key: Rol; label: string }[] = [
               </button>
             </div>
           } @else {
-            <p class="text-[13px] text-slate-500">Cargando...</p>
+            <div class="space-y-3" aria-label="Cargando" role="status">
+              @for (n of [1, 2, 3]; track n) {
+                <div class="space-y-1.5"><span class="skeleton h-3 w-1/3"></span><span class="skeleton h-9 w-full"></span></div>
+              }
+            </div>
           }
         </section>
       }
@@ -269,7 +273,11 @@ const ROLES: { key: Rol; label: string }[] = [
               </div>
             }
           } @else {
-            <p class="text-[13px] text-slate-500">Cargando...</p>
+            <div class="space-y-3" aria-label="Cargando" role="status">
+              @for (n of [1, 2, 3]; track n) {
+                <div class="space-y-1.5"><span class="skeleton h-3 w-1/3"></span><span class="skeleton h-9 w-full"></span></div>
+              }
+            </div>
           }
         </section>
       }

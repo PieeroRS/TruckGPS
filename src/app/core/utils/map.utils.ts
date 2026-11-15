@@ -95,3 +95,39 @@ export function relativeTime(iso: string): string {
   const days = Math.floor(hrs / 24);
   return `hace ${days} d`;
 }
+
+// ─────────────── movimiento suave de marcadores ───────────────
+
+const glides = new WeakMap<L.Marker | L.Circle, number>();
+
+function reducedMotion(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * Mueve un marcador hasta su nueva posición deslizándolo, en vez de hacerlo saltar.
+ * Si el salto es muy grande (otra ciudad), la pestaña está oculta o el usuario pidió
+ * menos movimiento, se coloca directo.
+ */
+export function glideTo(layer: L.Marker | L.Circle, to: L.LatLngTuple, ms = 900): void {
+  const prev = glides.get(layer);
+  if (prev) cancelAnimationFrame(prev);
+  const from = layer.getLatLng();
+  const dLat = to[0] - from.lat;
+  const dLng = to[1] - from.lng;
+  const lejos = Math.abs(dLat) > 0.05 || Math.abs(dLng) > 0.05; // más de ~5 km
+  const igual = Math.abs(dLat) < 1e-7 && Math.abs(dLng) < 1e-7;
+  if (igual || lejos || reducedMotion() || (typeof document !== 'undefined' && document.hidden)) {
+    layer.setLatLng(to);
+    return;
+  }
+  const t0 = performance.now();
+  const step = (now: number) => {
+    const k = Math.min(1, (now - t0) / ms);
+    const e = 1 - (1 - k) * (1 - k); // desacelera al llegar
+    layer.setLatLng([from.lat + dLat * e, from.lng + dLng * e]);
+    if (k < 1) glides.set(layer, requestAnimationFrame(step));
+    else glides.delete(layer);
+  };
+  glides.set(layer, requestAnimationFrame(step));
+}
