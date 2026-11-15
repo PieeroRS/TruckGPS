@@ -1,5 +1,5 @@
 import { ConfirmService } from '../services/confirm.service';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import {
@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  CloudUpload,
   FlaskConical,
   Fuel,
   LayoutDashboard,
@@ -22,9 +23,11 @@ import {
   Truck,
   User,
   Users,
+  WifiOff,
   X
 } from 'lucide-angular';
 import { AuthService } from '../../auth/auth.service';
+import { OfflineQueueService } from '../services/offline-queue.service';
 import { LayoutService } from '../services/layout.service';
 import { ZoneProximityService } from '../services/zone-proximity.service';
 import { AlertWatcherService } from '../services/alert-watcher.service';
@@ -273,6 +276,34 @@ const STAFF_NAV = [
           }
         }
 
+        <!-- Sin señal: lo que no se pudo enviar queda guardado y se manda solo -->
+        @if (!queue.online() || queue.hasPending()) {
+          <div class="flex items-center gap-2.5 px-4 py-2 text-[12px] leading-snug" [class]="queue.online() ? 'bg-blue-50 text-blue-900 border-b border-blue-100' : 'bg-slate-800 text-white'" role="status">
+            <lucide-icon [img]="queue.online() ? cloudUpIcon : wifiOffIcon" [size]="15" class="shrink-0" />
+            <p class="flex-1 min-w-0">
+              @if (!queue.online()) {
+                <strong>Sin conexión.</strong>
+                @if (queue.hasPending()) { Guardado en tu celular: {{ pendingText() }}. Se envía solo al volver la señal. } @else { Lo que registres se guarda y se envía solo al volver la señal. }
+              } @else {
+                {{ queue.flushing() ? 'Enviando' : 'Por enviar' }}: {{ pendingText() }}.
+              }
+            </p>
+          </div>
+        } @else if (sentNotice(); as n) {
+          <div class="flex items-center gap-2.5 px-4 py-2 text-[12px] bg-emerald-50 text-emerald-900 border-b border-emerald-100" role="status">
+            <lucide-icon [img]="cloudUpIcon" [size]="15" class="shrink-0" />
+            <p class="flex-1">Volvió la señal: se envió {{ n }}.</p>
+          </div>
+        }
+        @for (f of queue.failedReports(); track f.id) {
+          <div class="flex items-center gap-2.5 px-4 py-2 text-[12px] bg-red-50 text-red-900 border-b border-red-100" role="alert">
+            <lucide-icon [img]="alertTriangleIcon" [size]="15" class="shrink-0" />
+            <p class="flex-1 min-w-0"><strong>No se pudo enviar «{{ f.label }}»:</strong> {{ f.error }}</p>
+            <button type="button" class="shrink-0 font-semibold underline" (click)="queue.retryFailed()">Reintentar</button>
+            <button type="button" class="shrink-0 font-semibold underline" (click)="queue.discard(f.id)">Descartar</button>
+          </div>
+        }
+
         <main class="flex-1 min-h-0">
           <router-outlet />
         </main>
@@ -314,6 +345,27 @@ export class MainLayoutComponent {
   readonly proximity = inject(ZoneProximityService);
   readonly watcher = inject(AlertWatcherService);
   readonly tracking = inject(LocationTrackingService);
+  readonly queue = inject(OfflineQueueService);
+  readonly wifiOffIcon = WifiOff;
+  readonly cloudUpIcon = CloudUpload;
+  readonly pendingText = computed(() => this.countText(this.queue.pendingPositions(), this.queue.pendingReports()));
+  private readonly sentTick = signal(0);
+  /** Aviso corto después de enviar lo pendiente (se oculta a los 8 segundos). */
+  readonly sentNotice = computed(() => {
+    this.sentTick();
+    const s = this.queue.lastSent();
+    return s && Date.now() - s.at < 8000 ? this.countText(s.posiciones, s.reportes) : null;
+  });
+  private readonly sentEffect = effect(() => {
+    if (this.queue.lastSent()) setTimeout(() => this.sentTick.update((n) => n + 1), 8200);
+  });
+
+  private countText(pos: number, rep: number): string {
+    const partes: string[] = [];
+    if (rep) partes.push(`${rep} ${rep === 1 ? 'reporte' : 'reportes'}`);
+    if (pos) partes.push(`${pos} ${pos === 1 ? 'posición' : 'posiciones'} del recorrido`);
+    return partes.join(' y ');
+  }
   readonly alertTriangleIcon = AlertTriangle;
   readonly closeIcon = X;
 

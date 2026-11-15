@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 
 import { AuthService } from '../../auth/auth.service';
+import { OfflineQueueService, isNetworkError } from './offline-queue.service';
 import { ApiService } from '../api/api.service';
 import { apiErrorMessage } from '../utils/api-error.util';
 import { NativeFix, isNativeApp, openNativeSettings, startNativeWatch, stopNativeWatch } from './native-location';
@@ -44,6 +45,7 @@ interface PersistedState {
 export class LocationTrackingService {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly queue = inject(OfflineQueueService);
 
   readonly active = signal(false);
   readonly vehicleId = signal<string | null>(null);
@@ -89,7 +91,7 @@ export class LocationTrackingService {
     }
   }
 
-  async start(vehicleId: string, placa: string): Promise<{ ok: boolean; error?: string }> {
+  async start(vehicleId: string, placa: string, resuming = false): Promise<{ ok: boolean; error?: string }> {
     this.error.set(null);
     this.arrived.set(null);
 
@@ -118,10 +120,13 @@ export class LocationTrackingService {
       try {
         await this.api.post(`/vehicles/${vehicleId}/claim`);
       } catch (e) {
-        return {
-          ok: false,
-          error: apiErrorMessage(e, 'No se pudo asignar el vehículo. ¿Ya está en uso por otro conductor?')
-        };
+        // Al reabrir la app sin señal la unidad ya era de este conductor: se sigue y las posiciones se guardan.
+        if (!(resuming && isNetworkError(e))) {
+          return {
+            ok: false,
+            error: apiErrorMessage(e, 'No se pudo asignar el vehículo. ¿Ya está en uso por otro conductor?')
+          };
+        }
       }
 
       this.vehicleId.set(vehicleId);
@@ -178,7 +183,7 @@ export class LocationTrackingService {
       return;
     }
 
-    const result = await this.start(saved.vehicleId, saved.placa);
+    const result = await this.start(saved.vehicleId, saved.placa, true);
     if (!result.ok) {
       localStorage.removeItem(STORAGE_KEY);
       if (result.error) this.error.set(result.error);
@@ -308,7 +313,7 @@ export class LocationTrackingService {
 
     if (!force && !isFirst && !improved && (elapsed < MIN_SEND_MS || (!moved && elapsed < HEARTBEAT_MS))) return;
 
-    await this.sendPosition(lat, lng, speed ?? 0, acc);
+    await this.sendPosition(lat, lng, speed ?? 0, acc, pos.timestamp || now);
   }
 
   /** Pide una lectura nueva al instante (botón "Precisar ubicación"). */
@@ -325,7 +330,7 @@ export class LocationTrackingService {
     });
   }
 
-  private async sendPosition(lat: number, lng: number, speed: number, acc: number | null = this.accuracy()): Promise<void> {
+  private async sendPosition(lat: number, lng: number, speed: number, acc: number | null = this.accuracy(), takenAt = Date.now()): Promise<void> {
     const vid = this.vehicleId();
     if (!vid) return;
 
@@ -349,8 +354,20 @@ export class LocationTrackingService {
       this.lastSentLng = lng;
       this.lastSentAcc = acc;
       this.lastSync.set(new Date());
+      // Volvió la señal: se mandan las posiciones y reportes que quedaron guardados.
+      if (this.queue.hasPending()) void this.queue.flush();
     } catch (e) {
-      this.error.set(apiErrorMessage(e, 'Error al enviar ubicación'));
+      if (isNetworkError(e)) {
+        // Sin señal: la lectura se guarda en el celular con su hora y se envía al volver la conexión.
+        await this.queue.addPosition({ vid, lat, lng, velocidad: speed, precision_m: acc, t: new Date(takenAt).toISOString() });
+        this.lastSentAt = Date.now();
+        this.lastSentLat = lat;
+        this.lastSentLng = lng;
+        this.lastSentAcc = acc;
+        this.error.set(null);
+      } else {
+        this.error.set(apiErrorMessage(e, 'Error al enviar ubicación'));
+      }
     } finally {
       this.syncing.set(false);
     }
