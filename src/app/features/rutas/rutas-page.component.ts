@@ -475,7 +475,15 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
           <div class="pt-2">
             <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Rutas ({{ navRoutes.routes().length }})</p>
             @if (navRoutes.loading()) {
-              <p class="text-xs text-slate-500">Cargando...</p>
+              <div class="space-y-2" aria-label="Cargando rutas" role="status">
+                @for (n of [1, 2]; track n) {
+                  <div class="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <span class="skeleton h-3.5 w-3/5"></span>
+                    <span class="skeleton h-3 w-2/5"></span>
+                    <span class="skeleton h-1.5 w-full"></span>
+                  </div>
+                }
+              </div>
             } @else if (navRoutes.routes().length === 0) {
               <p class="text-xs text-slate-500">No hay rutas creadas aún. Elige origen y destino arriba para crear la primera.</p>
             } @else {

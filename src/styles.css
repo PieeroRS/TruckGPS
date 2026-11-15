@@ -1204,3 +1204,49 @@ textarea:focus-visible {
 .leaflet-container {
   isolation: isolate;
 }
+
+
+/* ─────────────── Entrada suave al cambiar de pantalla ─────────────── */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Dos nombres iguales para poder repetir la animación en cada cambio de pantalla. */
+main.page-in-a > *:not(router-outlet) {
+  animation: page-in 220ms cubic-bezier(0.22, 0.9, 0.3, 1) backwards;
+}
+main.page-in-b > *:not(router-outlet) {
+  animation: page-in 221ms cubic-bezier(0.22, 0.9, 0.3, 1) backwards;
+}
+
+/* ─────────────── Bloques de carga (en lugar de «Cargando...») ─────────────── */
+@keyframes skeleton-sheen {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef2f6 25%, #f8fafc 37%, #eef2f6 63%);
+  background-size: 400% 100%;
+  animation: skeleton-sheen 1.4s ease infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  main.page-in-a > *:not(router-outlet),
+  main.page-in-b > *:not(router-outlet) {
+    animation: none;
+  }
+  .skeleton {
+    animation: none;
+  }
+}

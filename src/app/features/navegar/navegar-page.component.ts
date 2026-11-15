@@ -35,7 +35,7 @@ import { OfflineQueueService, isNetworkError } from '../../core/services/offline
 import { RoutingService } from '../../core/services/routing.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
-import { createOsmMap } from '../../core/utils/map.utils';
+import { createOsmMap, glideTo } from '../../core/utils/map.utils';
 import { LatLng, cumulative, lowerFirst, pointAt, projectOnPath, spokenDistance } from '../../core/utils/nav.util';
 
 type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
@@ -696,8 +696,12 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       this.accCircle = L.circle(ll, { radius: this.pos.acc, color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.12, interactive: false }).addTo(this.map);
       this.me = L.marker(ll, { icon, zIndexOffset: 1000, interactive: false }).addTo(this.map);
     } else {
-      this.me.setLatLng(ll).setIcon(icon);
-      this.accCircle?.setLatLng(ll).setRadius(this.pos.acc);
+      this.me.setIcon(icon);
+      glideTo(this.me, ll, 800);
+      if (this.accCircle) {
+        this.accCircle.setRadius(this.pos.acc);
+        glideTo(this.accCircle, ll, 800);
+      }
     }
     if (this.following() && this.phase() === 'guiando') this.map.setView(ll, Math.max(this.map.getZoom(), 16), { animate: true });
   }

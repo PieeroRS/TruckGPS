@@ -43,8 +43,7 @@ import {
   createOsmMap,
   isLive,
   positionLabel,
-  vehicleStatusInfo
-} from '../../core/utils/map.utils';
+  vehicleStatusInfo, glideTo } from '../../core/utils/map.utils';
 
 type LiveFilter = 'all' | 'ok' | 'warn' | 'alert';
 
@@ -575,7 +574,10 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
       if (!isLive(v) || (v.precisionM ?? 0) < 15) continue;
       const c = this.accCircles.get(v.placa);
       const color = (v.precisionM ?? 0) > 100 ? '#d97706' : '#2563eb';
-      if (c) c.setLatLng([v.lat, v.lng]).setRadius(v.precisionM!).setStyle({ color, fillColor: color });
+      if (c) {
+        c.setRadius(v.precisionM!).setStyle({ color, fillColor: color });
+        glideTo(c, [v.lat, v.lng]);
+      }
       else
         this.accCircles.set(
           v.placa,
@@ -587,8 +589,8 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
       const pos: L.LatLngExpression = [v.lat, v.lng];
       const existing = this.markers.get(v.placa);
       if (existing) {
-        existing.setLatLng(pos);
         existing.setIcon(buildTruckIcon(v.estado, v.simulado));
+        glideTo(existing, [v.lat, v.lng]);
         bindVehicleTooltip(existing, v);
       } else {
         const m = L.marker(pos, { icon: buildTruckIcon(v.estado, v.simulado) }).addTo(this.map);

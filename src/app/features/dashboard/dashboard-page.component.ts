@@ -1,3 +1,4 @@
+import { CountUpDirective } from '../../core/directives/count-up.directive';
 import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import {
@@ -47,8 +48,7 @@ import { AlertCardComponent } from '../../core/components/alert-card.component';
 import {
   bindVehicleTooltip,
   buildTruckIcon,
-  createOsmMap
-} from '../../core/utils/map.utils';
+  createOsmMap, glideTo } from '../../core/utils/map.utils';
 
 /** Tipo de icono de lucide-angular (evita el error de [img] con `unknown`). */
 type LucideIcon = typeof Activity;
@@ -82,7 +82,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
 @Component({
   standalone: true,
   selector: 'app-dashboard-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule, AlertCardComponent],
+  imports: [CommonModule, FormsModule, LucideAngularModule, AlertCardComponent, CountUpDirective],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
 
@@ -110,7 +110,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
             <div
               class="kpi-value text-[26px] font-bold text-slate-900 tracking-[-0.03em] leading-none mt-3 tnum"
               [style.animation-delay.ms]="i * 60 + 180"
-            >{{ k.value }}</div>
+              [appCountUp]="k.value"
+            ></div>
             <div class="text-[12.5px] text-slate-500 font-medium mt-1">{{ k.label }}</div>
           </div>
         }
@@ -603,8 +604,8 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
       const pos: L.LatLngExpression = [v.lat, v.lng];
       const existing = this.markers.get(v.placa);
       if (existing) {
-        existing.setLatLng(pos);
         existing.setIcon(buildTruckIcon(v.estado, v.simulado));
+        glideTo(existing, [v.lat, v.lng]);
         bindVehicleTooltip(existing, v);
       } else {
         const m = L.marker(pos, { icon: buildTruckIcon(v.estado, v.simulado) }).addTo(this.map);
