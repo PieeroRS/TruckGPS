@@ -110,7 +110,8 @@ import { SettingsService } from '../core/services/settings.service';
                        focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                 name="username"
                 [(ngModel)]="username"
-                placeholder="operaciones@truckgps.pe"
+                placeholder="tucorreo@empresa.com"
+                autocomplete="username"
               />
             </div>
 
@@ -167,11 +168,6 @@ import { SettingsService } from '../core/services/settings.service';
               }
             </button>
           </form>
-
-          <p class="text-[11px] text-slate-400 mt-3 text-center leading-relaxed">
-            Supervisor: operaciones@truckgps.pe / password<br />
-            Conductor: conductor@truckgps.pe / password
-          </p>
 
           <p class="mt-8 text-center text-[12px] text-slate-400">
             © {{ year }} TruckGPS · Lima, Perú
