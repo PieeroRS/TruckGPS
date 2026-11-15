@@ -1,3 +1,6 @@
+import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DestroyRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -297,6 +300,9 @@ interface PhotoPreview {
 })
 export class ReportarPageComponent implements OnInit {
   private readonly incidents = inject(IncidentService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly layout = inject(LayoutService);
   private readonly auth = inject(AuthService);
   private readonly fleet = inject(FleetService);
@@ -377,8 +383,14 @@ export class ReportarPageComponent implements OnInit {
   private activeEstado: 'ok' | 'warn' | 'alert' | 'offline' = 'offline';
 
   ngOnInit(): void {
-    this.layout.setPage('Reportar incidencia', 'Vista mobile · Conductor');
+    this.layout.setPage('Reportar incidencia', 'Avisa al centro de control');
     void this.bootstrap();
+    // El botón de pánico de la barra inferior abre directo la confirmación.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      if (!q.has('panico')) return;
+      this.showPanicModal.set(true);
+      void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+    });
   }
 
   driverName(): string {

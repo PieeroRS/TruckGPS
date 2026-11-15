@@ -1079,3 +1079,128 @@ textarea:focus-visible {
     transform: translateY(-12px) scale(0.98);
   }
 }
+
+
+/* ─────────────── Barra inferior del conductor (celular) ─────────────── */
+.app-shell {
+  --bnav: 0px;
+}
+.app-shell.has-bnav {
+  --bnav: calc(62px + env(safe-area-inset-bottom, 0px));
+}
+.app-shell.has-bnav main {
+  padding-bottom: var(--bnav);
+}
+.bnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  height: var(--bnav);
+  padding: 0 6px env(safe-area-inset-bottom, 0px);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
+  background: #fff;
+  border-top: 1px solid var(--slate-200, #e2e8f0);
+  box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.06);
+}
+.bnav-item,
+.bnav-panic {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  color: #64748b;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+.bnav-item:active,
+.bnav-panic:active {
+  transform: scale(0.94);
+}
+.bnav-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.bnav-item.is-active {
+  color: #1d4ed8;
+}
+/* Marca de la pestaña activa: una línea corta arriba que aparece deslizándose. */
+.bnav-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: #1d4ed8;
+  transform: translateX(-50%) scaleX(0);
+  transition: transform 0.2s ease;
+}
+.bnav-item.is-active::before {
+  transform: translateX(-50%) scaleX(1);
+}
+.bnav-panic {
+  color: #b91c1c;
+}
+.bnav-panic-dot {
+  width: 50px;
+  height: 50px;
+  margin-top: -22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #dc2626;
+  border: 4px solid #fff;
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+}
+.bnav-item:focus-visible,
+.bnav-panic:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -4px;
+  border-radius: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bnav-item,
+  .bnav-panic,
+  .bnav-item::before {
+    transition: none;
+  }
+}
+
+
+/* ─────────────── Panel de rutas deslizable (celular) ─────────────── */
+@media (max-width: 1023px) {
+  .route-sheet {
+    box-shadow: 0 -10px 34px rgba(15, 23, 42, 0.2);
+    transition: height 0.28s cubic-bezier(0.22, 0.9, 0.3, 1), transform 0.25s ease;
+    will-change: height;
+  }
+  .route-sheet.is-dragging {
+    transition: none;
+  }
+  .route-sheet.is-hidden {
+    transform: translateY(105%);
+  }
+}
+@media (max-width: 1023px) and (prefers-reduced-motion: reduce) {
+  .route-sheet {
+    transition: none;
+  }
+}
+
+/* Los niveles internos del mapa (controles, marcadores) no deben pasar por encima de paneles y barras de la app. */
+.leaflet-container {
+  isolation: isolate;
+}
