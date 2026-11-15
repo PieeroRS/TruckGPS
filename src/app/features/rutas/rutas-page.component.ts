@@ -9,8 +9,10 @@ import {
   ViewChild,
   OnDestroy,
   computed,
+  effect,
   inject,
-  signal
+  signal,
+  untracked
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -63,18 +65,34 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
   selector: 'app-rutas-page',
   imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
-    <div class="h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px))] flex flex-col lg:flex-row">
-      <!-- Panel estilo Uber / InDrive -->
-      <aside class="w-full lg:w-[400px] xl:w-[420px] shrink-0 border-r border-slate-200 bg-white flex flex-col z-10 max-h-[52%] lg:max-h-none overflow-hidden">
-        <div class="p-4 border-b border-slate-100">
+    <div #rootEl class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px)-var(--bnav,0px))] lg:flex lg:flex-row overflow-hidden">
+      <!-- En el celular: panel que sube y baja sobre el mapa. En escritorio: columna fija a la izquierda. -->
+      <aside
+        class="route-sheet bg-white flex flex-col overflow-hidden absolute inset-x-0 bottom-0 z-[550] rounded-t-[22px] lg:static lg:z-10 lg:rounded-none lg:w-[400px] xl:w-[420px] lg:shrink-0 lg:border-r lg:border-slate-200"
+        [class.is-dragging]="dragPx() !== null"
+        [class.is-hidden]="sheetHidden()"
+        [style.height.px]="sheetHeight()"
+      >
+        <button
+          type="button"
+          class="lg:hidden shrink-0 w-full pt-2.5 pb-1.5 flex flex-col items-center gap-1.5 touch-none cursor-grab active:cursor-grabbing"
+          [attr.aria-label]="sheetSnap() === 'full' ? 'Bajar el panel para ver el mapa' : 'Subir el panel'"
+          (pointerdown)="sheetDown($event)"
+          (pointermove)="sheetMove($event)"
+          (pointerup)="sheetUp($event)"
+          (pointercancel)="sheetUp($event)"
+        >
+          <span class="w-10 h-1.5 rounded-full bg-slate-300"></span>
+        </button>
+        <div class="hidden lg:block p-4 border-b border-slate-100">
           <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
             <lucide-icon [img]="routeIcon" [size]="20" class="text-blue-600" />
             Planificar ruta
           </h2>
-          <p class="text-xs text-slate-500 mt-1">Origen, destino y asignación de unidad — como InDrive o Uber.</p>
+          <p class="text-xs text-slate-500 mt-1">Elige origen y destino, y asigna la unidad.</p>
         </div>
 
-        <div class="p-4 space-y-3 overflow-y-auto flex-1">
+        <div class="px-4 pb-4 pt-1 lg:pt-4 space-y-3 overflow-y-auto flex-1 overscroll-contain">
           <!-- Origen / Destino -->
           <div class="card p-3 space-y-2 relative">
             <div class="absolute left-[1.35rem] top-8 bottom-8 w-0.5 bg-slate-200"></div>
@@ -228,11 +246,11 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
             <p class="text-[11px] text-emerald-700 -mt-1">{{ m }}</p>
           }
           @if (plan()) {
-            <p class="text-[11px] text-slate-500 -mt-1">Puedes arrastrar los puntos verde y rojo en el mapa para ajustar el origen o el destino.</p>
+            <p class="hidden lg:block text-[11px] text-slate-500 -mt-1">Puedes arrastrar los puntos verde y rojo en el mapa para ajustar el origen o el destino.</p>
           }
 
-          <!-- Ciudades rápidas -->
-          <div>
+          <!-- Ciudades rápidas (en el celular se quitan al tener la ruta, para que el resultado quede a la vista) -->
+          <div [class.hidden]="isMobile() && !!plan()">
             <p class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Ciudades frecuentes</p>
             <div class="flex flex-wrap gap-1.5">
               @for (c of quickCities; track c.name) {
@@ -512,7 +530,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
       </aside>
 
       <!-- Mapa -->
-      <div class="flex-1 relative min-h-[220px] lg:min-h-0">
+      <div class="absolute inset-0 lg:relative lg:inset-auto lg:flex-1 lg:min-h-0">
         <div #mapEl class="absolute inset-0" [class.cursor-crosshair]="pickMode()"></div>
         @if (pickMode(); as mode) {
           <div class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900 text-white px-4 py-2 rounded-full text-xs shadow-lg flex items-center gap-2">
@@ -544,7 +562,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
           </div>
         }
         @if (!plan() && !selectedRouteId() && !pickMode() && !closureDraft()) {
-          <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur px-4 py-2 rounded-full text-xs text-slate-600 shadow-lg border border-slate-200 flex items-center gap-2">
+          <div class="hidden lg:flex absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur px-4 py-2 rounded-full text-xs text-slate-600 shadow-lg border border-slate-200 flex items-center gap-2">
             <lucide-icon [img]="mapPinIcon" [size]="14" class="text-blue-600" />
             Elige origen y destino para ver la ruta
           </div>
@@ -563,6 +581,78 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('mapEl') mapEl!: ElementRef<HTMLDivElement>;
+  @ViewChild('rootEl') rootEl!: ElementRef<HTMLDivElement>;
+
+  // ─────────────── panel deslizable (celular) ───────────────
+  readonly isMobile = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
+  readonly sheetSnap = signal<'peek' | 'half' | 'full'>('half');
+  readonly dragPx = signal<number | null>(null);
+  private readonly rootH = signal(640);
+  private dragStart: { y: number; h: number; moved: boolean } | null = null;
+
+  private snapPx(snap: 'peek' | 'half' | 'full'): number {
+    const h = this.rootH();
+    return snap === 'peek' ? Math.min(168, h - 8) : snap === 'half' ? Math.round(h * 0.5) : h - 8;
+  }
+  /** Alto del panel en el celular; en escritorio no se fija (ocupa su columna). */
+  readonly sheetHeight = computed(() => (this.isMobile() ? (this.dragPx() ?? this.snapPx(this.sheetSnap())) : null));
+  /** Al marcar un punto en el mapa el panel se quita del medio. */
+  readonly sheetHidden = computed(() => this.isMobile() && (!!this.pickMode() || !!this.closureDraft()));
+
+  private readonly sheetEffect = effect(() => {
+    // Escribir en un buscador sube el panel (hace falta espacio para la lista); con la ruta lista baja a la mitad.
+    const campo = this.activeField();
+    const plan = this.plan();
+    untracked(() => {
+      if (campo) this.sheetSnap.set('full');
+      else if (plan && this.sheetSnap() === 'full') this.sheetSnap.set('half');
+    });
+  });
+
+  sheetDown(e: PointerEvent): void {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    this.dragStart = { y: e.clientY, h: this.sheetHeight() ?? this.snapPx('half'), moved: false };
+  }
+
+  sheetMove(e: PointerEvent): void {
+    const d = this.dragStart;
+    if (!d) return;
+    const dy = d.y - e.clientY;
+    if (Math.abs(dy) > 6) d.moved = true;
+    if (d.moved) this.dragPx.set(Math.max(96, Math.min(this.rootH() - 8, d.h + dy)));
+  }
+
+  sheetUp(_e: PointerEvent): void {
+    const d = this.dragStart;
+    this.dragStart = null;
+    if (!d) return;
+    const px = this.dragPx();
+    this.dragPx.set(null);
+    if (!d.moved || px === null) {
+      // Toque simple: alterna entre ver el mapa y ver el panel.
+      this.sheetSnap.set(this.sheetSnap() === 'peek' ? 'half' : this.sheetSnap() === 'half' ? 'full' : 'half');
+      return;
+    }
+    const snaps = ['peek', 'half', 'full'] as const;
+    this.sheetSnap.set(snaps.reduce((a, b) => (Math.abs(this.snapPx(b) - px) < Math.abs(this.snapPx(a) - px) ? b : a)));
+  }
+
+  private readonly onResize = (): void => {
+    this.isMobile.set(window.matchMedia('(max-width: 1023px)').matches);
+    if (this.rootEl) this.rootH.set(this.rootEl.nativeElement.clientHeight || 640);
+    this.map?.invalidateSize();
+  };
+
+  /** Encuadra la ruta en la parte del mapa que no tapa el panel. */
+  private fitVisible(bounds: L.LatLngBounds): void {
+    if (!this.map) return;
+    if (!this.isMobile()) {
+      this.map.fitBounds(bounds);
+      return;
+    }
+    if (this.sheetSnap() === 'full') this.sheetSnap.set('half');
+    this.map.fitBounds(bounds, { paddingTopLeft: [28, 28], paddingBottomRight: [28, this.snapPx(this.sheetSnap()) + 20] });
+  }
 
   readonly routeIcon = Route;
   readonly swapIcon = ArrowLeftRight;
@@ -664,6 +754,10 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     this.map = createOsmMap(this.mapEl.nativeElement, [-9.19, -75.0], 6);
+    this.onResize();
+    window.addEventListener('resize', this.onResize);
+    // En el celular el panel tapa la parte de abajo: los créditos del mapa van arriba para que sigan visibles.
+    if (this.isMobile()) this.map.attributionControl?.setPosition('topright');
     this.trafficLayer = L.layerGroup().addTo(this.map);
     this.myLocationLayer = L.layerGroup().addTo(this.map);
     this.map.on('click', (e: L.LeafletMouseEvent) => void this.onMapClick(e.latlng.lat, e.latlng.lng));
@@ -682,6 +776,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.poll) clearInterval(this.poll);
+    window.removeEventListener('resize', this.onResize);
     this.map?.remove();
     this.map = null;
   }
@@ -1309,7 +1404,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
       this.destMarker = L.marker([p.destination.lat, p.destination.lng], { icon: this.pinIcon('#ef4444', 'Destino') }).bindTooltip('Destino').addTo(this.map);
     }
 
-    this.map.fitBounds(this.routeLine.getBounds().pad(0.12));
+    this.fitVisible(this.routeLine.getBounds().pad(0.12));
   }
 
   private drawSimpleRoute(r: NavRoute): void {
@@ -1320,7 +1415,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
       [r.destLat, r.destLng]
     ];
     this.routeLine = L.polyline(coords, { color: '#2563eb', weight: 4, dashArray: '8 8' }).addTo(this.map);
-    this.map.fitBounds(L.latLngBounds(coords).pad(0.2));
+    this.fitVisible(L.latLngBounds(coords).pad(0.2));
   }
 
   private clearMapOverlays(): void {

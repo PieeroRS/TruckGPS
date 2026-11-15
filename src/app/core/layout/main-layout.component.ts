@@ -16,9 +16,11 @@ import {
   Map,
   MapPin,
   Menu,
+  Navigation,
   Route,
   Search,
   Settings,
+  Siren,
   ShieldAlert,
   Truck,
   User,
@@ -56,7 +58,7 @@ const STAFF_NAV = [
   selector: 'app-main-layout',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, LucideAngularModule],
   template: `
-    <div class="app-shell">
+    <div class="app-shell" [class.has-bnav]="showBottomNav()">
       <div class="lg:contents">
         <aside
           class="sidebar"
@@ -168,6 +170,7 @@ const STAFF_NAV = [
           <button
             type="button"
             class="lg:hidden -ml-1 w-10 h-10 rounded-full flex items-center justify-center hover:bg-slate-100 active:scale-95 transition"
+            [class.hidden]="showBottomNav()"
             aria-label="Abrir menú"
             [attr.aria-expanded]="drawerOpen()"
             (click)="openDrawer()"
@@ -307,6 +310,29 @@ const STAFF_NAV = [
         <main class="flex-1 min-h-0">
           <router-outlet />
         </main>
+
+        <!-- Conductor en el celular: lo principal siempre a un toque, con una mano -->
+        @if (showBottomNav()) {
+          <nav class="bnav" aria-label="Accesos del conductor">
+            @for (it of bottomItems(); track it.path) {
+              @if (it.panic) {
+                <a routerLink="/reportar" [queryParams]="{ panico: 1 }" class="bnav-panic" aria-label="Botón de pánico">
+                  <span class="bnav-panic-dot"><lucide-icon [img]="it.icon" [size]="24" /></span>
+                  <span class="bnav-label">Pánico</span>
+                </a>
+              } @else {
+                <a [routerLink]="it.path" routerLinkActive="is-active" class="bnav-item">
+                  <lucide-icon [img]="it.icon" [size]="22" />
+                  <span class="bnav-label">{{ it.label }}</span>
+                </a>
+              }
+            }
+            <button type="button" class="bnav-item" [class.is-active]="drawerOpen()" aria-label="Más opciones" (click)="openDrawer()">
+              <lucide-icon [img]="menuIcon" [size]="22" />
+              <span class="bnav-label">Más</span>
+            </button>
+          </nav>
+        }
       </div>
     </div>
 
@@ -393,12 +419,31 @@ export class MainLayoutComponent {
   readonly userIcon = User;
 
   readonly drawerOpen = signal(false);
+
+  private readonly url = signal(this.router.url);
+  /** Accesos fijos del conductor en el celular (respetan los módulos que ocultó el administrador). */
+  readonly bottomItems = computed(() => {
+    const ve = (k: string) => this.settings.puedeVer(k);
+    const items: { path: string; label: string; icon: typeof Menu; panic?: boolean }[] = [];
+    if (ve('mi-ubicacion')) items.push({ path: '/mi-ubicacion', label: 'Mi GPS', icon: MapPin });
+    if (ve('rutas')) items.push({ path: '/rutas', label: 'Rutas', icon: Navigation });
+    if (ve('reportar')) {
+      items.push({ path: '/reportar?panico', label: 'Pánico', icon: Siren, panic: true });
+      items.push({ path: '/reportar', label: 'Reportar', icon: AlertCircle });
+    }
+    return items;
+  });
+  /** Solo para conductores, en pantallas chicas y fuera de la navegación a pantalla completa. */
+  readonly showBottomNav = computed(
+    () => this.isMobile() && !!this.auth.profile() && !this.auth.isStaff() && this.bottomItems().length >= 2 && !this.url().startsWith('/navegar')
+  );
   readonly loggingOut = signal(false);
 
   constructor() {
     this.watcher.start();
     void this.settings.loadInterfaz();
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
+      this.url.set(this.router.url);
       this.closeDrawer();
     });
 

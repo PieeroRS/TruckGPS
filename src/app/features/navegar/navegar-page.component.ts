@@ -46,7 +46,7 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
   selector: 'app-navegar-page',
   imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
-    <div class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px))] bg-slate-200 overflow-hidden">
+    <div class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px)-var(--bnav,0px))] bg-slate-200 overflow-hidden">
       <div #mapEl class="absolute inset-0"></div>
 
       <!-- Indicación actual -->
