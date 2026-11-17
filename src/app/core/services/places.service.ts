@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 
 import { ApiService } from '../api/api.service';
@@ -83,6 +84,34 @@ const CATEGORIES: { words: string[]; tag: string; label: string }[] = [
   { words: ['ferreteria'], tag: 'shop:hardware', label: 'Ferreterías' },
   { words: ['estacionamiento', 'cochera', 'playa de estacionamiento'], tag: 'amenity:parking', label: 'Estacionamientos' }
 ];
+
+/**
+ * Lee coordenadas escritas o pegadas: «-12.0464, -77.0428», o un enlace de Google Maps
+ * con «@-12.04,-77.04,17z», «?q=-12.04,-77.04» o «!3d-12.04!4d-77.04». Solo puntos dentro de Perú.
+ */
+export function parseCoordinates(text: string): [number, number] | null {
+  const t = text.trim();
+  const pats = [
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|query|ll|destination)=(-?\d{1,2}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i,
+    /^(-?\d{1,2}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})$/
+  ];
+  for (const re of pats) {
+    const m = re.exec(t);
+    if (!m) continue;
+    const lat = parseFloat(m[1]);
+    const lng = parseFloat(m[2]);
+    if (lat > -18.6 && lat < 0.3 && lng > -81.6 && lng < -68.4) return [lat, lng];
+  }
+  return null;
+}
+
+/** «Feria Grau - ex carpa grau» → «Feria Grau». Devuelve null si no hay nada que acortar. */
+export function shortenQuery(q: string): string | null {
+  const first = q.split(/\s[-–—|/]\s|[,(]/)[0].trim();
+  return first.length >= 3 && first.length < q.trim().length ? first : null;
+}
 
 export function normalizeText(s: string): string {
   return s
@@ -207,12 +236,23 @@ export class PlacesService {
       return nq.split(' ').every((w) => hay.includes(w));
     });
 
-    const [photon, nominatim] = await Promise.allSettled([this.photon(q, center), this.nominatim(q, center)]);
-    const online = [...(photon.status === 'fulfilled' ? photon.value : []), ...(nominatim.status === 'fulfilled' ? nominatim.value : [])];
-    if (photon.status === 'rejected' && nominatim.status === 'rejected' && !savedHits.length) {
-      throw new Error('No se pudo buscar: revisa tu conexión a internet.');
-    }
+    // Coordenadas o un enlace copiado de Google Maps: se usa ese punto tal cual.
+    const punto = parseCoordinates(q);
+    if (punto) return { results: [{ name: 'Ubicación pegada', detail: `${punto[0].toFixed(5)}, ${punto[1].toFixed(5)}`, lat: punto[0], lng: punto[1], kind: 'poi' }] };
+
+    let online = await this.onlineSearch(q, center, savedHits.length > 0);
     let results = this.rank([...savedHits, ...online], nq, center);
+
+    // «Feria Grau - ex carpa grau»: si el nombre completo no aparece, se prueba con la primera parte.
+    const corto = shortenQuery(q);
+    if (corto && !results.some((r) => r.kind === 'saved' || this.matchScore(r, nq) >= 0.75)) {
+      try {
+        online = [...(await this.onlineSearch(corto, center, true)), ...online];
+        results = this.rank([...savedHits, ...online], normalizeText(corto), center);
+      } catch {
+        /* se queda con lo que haya */
+      }
+    }
     let categoryLabel: string | undefined;
 
     // Si no hay un resultado que coincida de verdad, se ofrecen lugares de ese tipo cerca.
@@ -234,6 +274,37 @@ export class PlacesService {
       }
     }
     return { results: results.slice(0, 8), categoryLabel };
+  }
+
+  /** TomTom (si está configurado en el servidor) + mapas libres, en paralelo. */
+  private async onlineSearch(q: string, center: [number, number], tolerant: boolean): Promise<PlaceResult[]> {
+    const [tt, photon, nominatim] = await Promise.allSettled([
+      this.tomtom(q, center),
+      this.photon(q, center),
+      this.nominatim(q, center)
+    ]);
+    const val = <T>(r: PromiseSettledResult<T[]>) => (r.status === 'fulfilled' ? r.value : []);
+    if (!tolerant && [tt, photon, nominatim].every((r) => r.status === 'rejected')) {
+      throw new Error('No se pudo buscar: revisa tu conexión a internet.');
+    }
+    // TomTom primero: tiene más negocios y direcciones de Perú que el mapa libre.
+    return [...val(tt), ...val(photon), ...val(nominatim)];
+  }
+
+  private tomtomOff = false;
+
+  private async tomtom(q: string, center: [number, number]): Promise<PlaceResult[]> {
+    if (this.tomtomOff || q.length < 3) return [];
+    try {
+      const r = await this.api.get<{ resultados: { nombre: string; detalle: string | null; lat: number; lng: number; tipo: PlaceKind }[] }>(
+        `/mapas/buscar?q=${encodeURIComponent(q)}&lat=${center[0]}&lng=${center[1]}`
+      );
+      return r.resultados.map((x) => ({ name: x.nombre, detail: x.detalle ?? undefined, lat: x.lat, lng: x.lng, kind: x.tipo }));
+    } catch (e) {
+      // No configurado: no se vuelve a intentar en esta sesión.
+      if (e instanceof HttpErrorResponse && e.status === 503) this.tomtomOff = true;
+      throw e;
+    }
   }
 
   /** Qué tanto del texto buscado aparece en el resultado (0 a 1). */

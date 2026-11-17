@@ -1,3 +1,4 @@
+import { TrafficLayerService } from '../../core/services/traffic-layer.service';
 import { CommonModule } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -47,7 +48,7 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
   imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px)-var(--bnav,0px))] bg-slate-200 overflow-hidden">
-      <div #mapEl class="absolute inset-0"></div>
+      <div #mapEl class="absolute inset-0 nav-map"></div>
 
       <!-- Indicación actual -->
       @if (phase() === 'guiando' && nextStep(); as st) {
@@ -196,6 +197,8 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly session = inject(NavSessionService);
   readonly voice = inject(VoiceService);
   private readonly queue = inject(OfflineQueueService);
+  private readonly liveTraffic = inject(TrafficLayerService);
+  private detachTraffic: (() => void) | null = null;
   readonly tracking = inject(LocationTrackingService);
 
   readonly navIcon = Navigation;
@@ -315,6 +318,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     const c: LatLng = this.dest ? [this.dest.lat, this.dest.lng] : [-12.0464, -77.0428];
     this.map = createOsmMap(this.mapEl.nativeElement, c, 14);
+    this.detachTraffic = this.liveTraffic.attach(this.map);
     this.closureLayer = L.layerGroup().addTo(this.map);
     this.map.on('dragstart', () => this.following.set(false));
     this.drawDest();
@@ -329,6 +333,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     document.removeEventListener('visibilitychange', this.onVisibility);
     void this.wakeLock?.release().catch(() => undefined);
     this.voice.stop();
+    this.detachTraffic?.();
     this.map?.remove();
     this.map = null;
   }
