@@ -1,3 +1,4 @@
+import { TrafficLayerService } from '../../core/services/traffic-layer.service';
 import { ConfirmService } from '../../core/services/confirm.service';
 import { CommonModule } from '@angular/common';
 import {
@@ -92,9 +93,9 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
           <p class="text-xs text-slate-500 mt-1">Elige origen y destino, y asigna la unidad.</p>
         </div>
 
-        <div class="px-4 pb-4 pt-1 lg:pt-4 space-y-3 overflow-y-auto flex-1 overscroll-contain">
+        <div #sheetScroll class="px-4 pb-4 pt-1 lg:pt-4 space-y-3 overflow-y-auto flex-1 overscroll-contain">
           <!-- Origen / Destino -->
-          <div class="card p-3 space-y-2 relative">
+          <div #fieldsCard class="card p-3 space-y-2 relative">
             <div class="absolute left-[1.35rem] top-8 bottom-8 w-0.5 bg-slate-200"></div>
 
             <div class="relative">
@@ -590,6 +591,8 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   @ViewChild('mapEl') mapEl!: ElementRef<HTMLDivElement>;
   @ViewChild('rootEl') rootEl!: ElementRef<HTMLDivElement>;
+  @ViewChild('sheetScroll') sheetScroll?: ElementRef<HTMLDivElement>;
+  @ViewChild('fieldsCard') fieldsCard?: ElementRef<HTMLDivElement>;
 
   // ─────────────── panel deslizable (celular) ───────────────
   readonly isMobile = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
@@ -612,7 +615,15 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const campo = this.activeField();
     const plan = this.plan();
     untracked(() => {
-      if (campo) this.sheetSnap.set('full');
+      if (campo && this.isMobile()) {
+        this.sheetSnap.set('full');
+        // Los dos campos quedan arriba y la lista de resultados debajo, sin que se corte el origen.
+        setTimeout(() => {
+          const sc = this.sheetScroll?.nativeElement;
+          const card = this.fieldsCard?.nativeElement;
+          if (sc && card) sc.scrollTop += card.getBoundingClientRect().top - sc.getBoundingClientRect().top - 4;
+        }, 320);
+      }
       else if (plan && this.sheetSnap() === 'full') this.sheetSnap.set('half');
     });
   });
@@ -685,6 +696,8 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly places = inject(PlacesService);
   private readonly router = inject(Router);
   private readonly navSession = inject(NavSessionService);
+  private readonly liveTraffic = inject(TrafficLayerService);
+  private detachTraffic: (() => void) | null = null;
 
   readonly destSearching = signal(false);
   readonly destCategory = signal<string | null>(null);
@@ -762,6 +775,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     this.map = createOsmMap(this.mapEl.nativeElement, [-9.19, -75.0], 6);
+    this.detachTraffic = this.liveTraffic.attach(this.map);
     this.onResize();
     window.addEventListener('resize', this.onResize);
     // En el celular el panel tapa la parte de abajo: los créditos del mapa van arriba para que sigan visibles.
@@ -785,6 +799,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.poll) clearInterval(this.poll);
     window.removeEventListener('resize', this.onResize);
+    this.detachTraffic?.();
     this.map?.remove();
     this.map = null;
   }

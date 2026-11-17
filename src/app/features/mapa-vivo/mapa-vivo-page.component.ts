@@ -1,3 +1,4 @@
+import { TrafficLayerService } from '../../core/services/traffic-layer.service';
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
@@ -337,6 +338,8 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly trackMin = signal(30);
   readonly trackInfo = signal<{ puntos: number; km: number; fuente: string } | null>(null);
   private readonly api = inject(ApiService);
+  private readonly liveTraffic = inject(TrafficLayerService);
+  private detachTraffic: (() => void) | null = null;
 
   constructor() {
     effect(() => {
@@ -349,6 +352,7 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     this.unsubscribeRealtime?.();
     this.stopPolling?.();
     this.fleet.stopPolling();
+    this.detachTraffic?.();
     this.map?.remove();
     this.map = null;
   }
@@ -539,6 +543,7 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const zoom = vehicles.length > 0 ? 6 : 5;
 
     this.map = createOsmMap(this.mapEl.nativeElement, center, zoom);
+    this.detachTraffic = this.liveTraffic.attach(this.map);
     this.refreshMarkers();
 
     for (const r of SAMPLE_ROUTES) {
