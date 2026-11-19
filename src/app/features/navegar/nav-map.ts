@@ -41,7 +41,7 @@ export class NavMap {
   constructor(
     el: HTMLElement,
     center: LatLng,
-    tiles: { base: string } | null,
+    tiles: { base: string; traffic?: string } | null,
     private readonly night: boolean
   ) {
     const baseTiles = tiles
@@ -58,11 +58,26 @@ export class NavMap {
           maxzoom: 18,
           attribution: tiles ? '© TomTom' : '© OpenStreetMap'
         },
+        ...(tiles?.traffic
+          ? {
+              flow: {
+                type: 'raster' as const,
+                tiles: [NavMap.flowUrl(tiles.traffic)],
+                tileSize: 256,
+                minzoom: 6,
+                maxzoom: 18,
+                attribution: 'Tráfico © TomTom'
+              }
+            }
+          : {}),
         route: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
         traffic: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
       },
       layers: [
         { id: 'base', type: 'raster', source: 'base', paint: night ? {} : { 'raster-saturation': -0.15 } },
+        ...(tiles?.traffic
+          ? [{ id: 'flow', type: 'raster' as const, source: 'flow', paint: { 'raster-opacity': night ? 0.85 : 0.75, 'raster-fade-duration': 0 } }]
+          : []),
         {
           id: 'route-casing',
           type: 'line',
@@ -97,6 +112,13 @@ export class NavMap {
       pitchWithRotate: true,
       maxPitch: 65
     });
+    this.trafficBase = tiles?.traffic ?? null;
+    if (this.trafficBase) {
+      this.flowTimer = setInterval(() => {
+        const src = this.map.getSource('flow') as { setTiles?: (t: string[]) => void } | undefined;
+        if (!document.hidden && src?.setTiles && this.trafficBase) src.setTiles([NavMap.flowUrl(this.trafficBase)]);
+      }, 120000);
+    }
     this.map.on('load', () => {
       this.loaded = true;
       this.pending.splice(0).forEach((fn) => fn());
@@ -112,6 +134,26 @@ export class NavMap {
     this.map.on('pitchstart', manual);
     this.map.on('zoomstart', manual);
   }
+
+  private flowTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Los cuadros de tráfico cambian cada 2 minutos: el número del final hace que se pidan de nuevo. */
+  static flowUrl(base: string): string {
+    return `${base}&v=${Math.floor(Date.now() / 120000)}`;
+  }
+
+  /** Muestra u oculta el tráfico en vivo de las calles. */
+  setTrafficVisible(on: boolean): void {
+    this.whenLoaded(() => {
+      if (this.map.getLayer('flow')) this.map.setLayoutProperty('flow', 'visibility', on ? 'visible' : 'none');
+    });
+  }
+
+  hasTraffic(): boolean {
+    return !!this.trafficBase;
+  }
+
+  private trafficBase: string | null = null;
 
   private whenLoaded(fn: () => void): void {
     if (this.loaded) fn();
@@ -220,6 +262,7 @@ export class NavMap {
   }
 
   remove(): void {
+    if (this.flowTimer) clearInterval(this.flowTimer);
     this.map.remove();
   }
 }

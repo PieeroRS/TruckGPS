@@ -523,6 +523,16 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                       {{ r.distanceKm ?? '—' }} km · {{ formatDuration(r.durationMin ?? 0) }}
                       @if (r.vehiclePlaca) { · {{ r.vehiclePlaca }} }
                     </div>
+                    @if (selectedRouteId() === r.id) {
+                      @if (liveEta() === 'cargando') {
+                        <p class="text-[11.5px] text-slate-500 mb-2 flex items-center gap-1.5" role="status"><span class="skeleton h-3 w-40"></span></p>
+                      } @else if (liveEtaFor(r.id); as le) {
+                        <p class="text-[12px] mb-2 flex items-center gap-1.5" [class]="le.demora >= 5 ? 'text-amber-700' : 'text-emerald-700'">
+                          @if (le.enVivo) { <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 live-dot shrink-0"></span> }
+                          <span>{{ le.enVivo ? 'Con el tráfico de ahora' : 'Estimado ahora' }}: <strong>{{ formatDuration(le.min) }}</strong> · llegas a las {{ arrivalClock(le.min) }}@if (le.demora >= 1) { (+{{ le.demora }} min por tráfico)}</span>
+                        </p>
+                      }
+                    }
                     @if (r.status === 'en-curso') {
                       <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-2">
                         <div class="h-full bg-emerald-500 transition-all duration-700" [style.width.%]="r.progressPct"></div>
@@ -1079,6 +1089,11 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     void this.router.navigate(['/navegar']);
   }
 
+  liveEtaFor(id: string): { id: string; min: number; demora: number; enVivo: boolean } | null {
+    const v = this.liveEta();
+    return v && v !== 'cargando' && v.id === id ? v : null;
+  }
+
   navigateRoute(r: NavRoute, ev: Event): void {
     ev.stopPropagation();
     this.navSession.target.set({ dest: { name: r.destName, lat: r.destLat, lng: r.destLng }, routeId: r.id, label: r.routeLabel });
@@ -1361,8 +1376,30 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /** Tiempo con el tráfico de ahora de la ruta guardada que se tocó (las tarjetas guardan el de cuando se creó). */
+  readonly liveEta = signal<{ id: string; min: number; demora: number; enVivo: boolean } | 'cargando' | null>(null);
+
+  private async loadLiveEta(r: NavRoute): Promise<void> {
+    this.liveEta.set('cargando');
+    try {
+      const plans = await this.routing.planAlternatives(
+        { name: r.originName, lat: r.originLat, lng: r.originLng },
+        { name: r.destName, lat: r.destLat, lng: r.destLng }
+      );
+      const p = plans[0];
+      if (this.selectedRouteId() !== r.id) return;
+      this.liveEta.set(
+        p?.durationTrafficMin != null ? { id: r.id, min: p.durationTrafficMin, demora: p.demoraTraficoMin ?? 0, enVivo: !!p.enVivo } : null
+      );
+    } catch {
+      if (this.selectedRouteId() === r.id) this.liveEta.set(null);
+    }
+  }
+
   showRouteOnMap(r: NavRoute): void {
+    const nueva = this.selectedRouteId() !== r.id;
     this.selectedRouteId.set(r.id);
+    if (nueva && r.status !== 'completada' && r.status !== 'cancelada') void this.loadLiveEta(r);
     if (!this.map || !r.geometry?.length) {
       this.drawSimpleRoute(r);
       return;
