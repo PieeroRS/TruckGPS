@@ -65,9 +65,19 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
         </div>
       }
 
+      @if (phase() === 'guiando' && trafficAhead(); as t) {
+        <div class="nav-traffic" [class]="'is-' + t.nivel" [style.top.px]="afterStep() ? 150 : 108" role="status">
+          <span class="nav-traffic-dot"></span>
+          <span>
+            @if (t.dentro) { {{ trafficTitle(t.nivel) }} por {{ distLabel(t.largo) }} } @else { {{ trafficTitle(t.nivel) }} en {{ distLabel(t.distancia) }} }
+            · +{{ t.demoraMin }} min
+          </span>
+        </div>
+      }
+
       @if (banner(); as b) {
         <div class="absolute left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[460px] z-[600] rounded-xl px-3 py-2 text-[12.5px] font-medium shadow-lg flex items-start gap-2"
-          [style.top.px]="phase() === 'guiando' ? (afterStep() ? 150 : 108) : 8"
+          [style.top.px]="phase() === 'guiando' ? (afterStep() ? 150 : 108) + (trafficAhead() ? 44 : 0) : 8"
           [class]="b.tone === 'warn' ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : b.tone === 'bad' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'">
           <lucide-icon [img]="b.tone === 'ok' ? okIcon : warnIcon" [size]="15" class="mt-0.5 shrink-0" />
           <span>{{ b.text }}</span>
@@ -121,16 +131,20 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
                 Este navegador no tiene voz. Verás las indicaciones en pantalla; para escucharlas abre TruckGPS en Chrome o Safari.
               </p>
             }
-            <button type="button" class="w-full mt-4 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[15px] flex items-center justify-center gap-2" (click)="start()">
-              <lucide-icon [img]="navIcon" [size]="18" /> Iniciar navegación
+            <button type="button" class="w-full mt-4 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[15px] flex items-center justify-center gap-2" (click)="start(true)">
+              <lucide-icon [img]="volIcon" [size]="18" /> Iniciar con voz
             </button>
+            <button type="button" class="w-full mt-2 py-3 rounded-xl ring-1 ring-slate-300 text-slate-800 font-semibold text-[14px] flex items-center justify-center gap-2 hover:bg-slate-50" (click)="start(false)">
+              <lucide-icon [img]="navIcon" [size]="17" /> Iniciar sin voz (solo pantalla)
+            </button>
+            <p class="text-[11px] text-slate-500 mt-2 text-center">Puedes activar o quitar la voz en cualquier momento con el botón del parlante.</p>
           } @else if (phase() === 'gps') {
             <p class="text-[13px] text-blue-700 mt-3 flex items-center gap-2"><lucide-icon [img]="loaderIcon" [size]="15" class="animate-spin" /> Buscando tu ubicación…</p>
           } @else if (phase() === 'ruta') {
             <p class="text-[13px] text-blue-700 mt-3 flex items-center gap-2"><lucide-icon [img]="loaderIcon" [size]="15" class="animate-spin" /> Calculando la mejor ruta…</p>
           } @else {
             <p class="text-[12.5px] text-red-700 bg-red-50 ring-1 ring-red-200 rounded-lg px-2.5 py-2 mt-3">{{ error() }}</p>
-            <button type="button" class="w-full mt-3 py-3 rounded-xl bg-blue-600 text-white font-semibold text-[14px]" (click)="start()">Reintentar</button>
+            <button type="button" class="w-full mt-3 py-3 rounded-xl bg-blue-600 text-white font-semibold text-[14px]" (click)="start(voice.enabled())">Reintentar</button>
           }
           <button type="button" class="w-full mt-2 py-2.5 rounded-xl text-slate-600 text-[13px] font-semibold hover:bg-slate-50" (click)="exit()">Volver</button>
         </div>
@@ -169,11 +183,16 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
       @if (phase() === 'guiando' && !closureSheet()) {
         <div class="nav-bottom">
           <div class="min-w-0 flex-1 text-center">
-            <p class="text-[26px] font-bold leading-none tnum" [class]="(guide()?.demoraTraficoMin ?? 0) >= 5 ? 'text-amber-400' : 'text-emerald-400'">{{ etaMin() }} min</p>
+            <p class="text-[26px] font-bold leading-none tnum" [class]="delayTotalMin() >= 5 ? 'text-amber-400' : 'text-emerald-400'">{{ etaMin() }} min</p>
             <p class="text-[13px] text-slate-300 mt-1 tnum truncate">
               @if (guide()?.enVivo) { <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot align-middle mr-1" title="Con tráfico en vivo"></span> }{{ etaClock() }} · {{ remainingLabel() }}
               @if (rerouting()) { · <span class="text-sky-300 font-semibold">recalculando…</span> }
             </p>
+            @if (guide()?.enVivo) {
+              <p class="text-[11.5px] mt-0.5" [class]="delayTotalMin() >= 2 ? 'text-amber-300' : 'text-emerald-300'">
+                {{ delayTotalMin() >= 2 ? '+' + delayTotalMin() + ' min por tráfico en tu ruta' : 'Tráfico fluido en tu ruta' }}
+              </p>
+            }
             @if (routeId && !tracking.active()) {
               <p class="text-[10.5px] text-amber-300 mt-1">
                 El GPS de tu unidad está apagado. <a routerLink="/mi-ubicacion" class="font-semibold underline">Activarlo</a>
@@ -204,13 +223,22 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
       .nav-fab.is-off { color: #fca5a5; }
       .nav-fab.is-warn { color: #fbbf24; }
       .nav-fab.is-traffic { background: #14532d; }
+      .nav-traffic {
+        position: absolute; left: 50%; transform: translateX(-50%); z-index: 600; display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 700; color: #fff; white-space: nowrap;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, .35); background: #b45309;
+      }
+      .nav-traffic.is-pesado { background: #b91c1c; }
+      .nav-traffic.is-detenido { background: #7f1d1d; }
+      .nav-traffic-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: live-pulse 1.6s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .nav-traffic-dot { animation: none; } }
       .nav-legend {
         position: absolute; left: 12px; z-index: 600; display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: calc(100% - 90px);
-        padding: 7px 11px; border-radius: 12px; background: rgba(17, 20, 24, .88); color: #e5e7eb; font-size: 11.5px; font-weight: 600;
+        padding: 5px 9px; border-radius: 10px; background: rgba(17, 20, 24, .82); color: #e5e7eb; font-size: 10.5px; font-weight: 600;
         box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
       }
       .nav-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-      .nav-legend i { width: 14px; height: 5px; border-radius: 3px; display: inline-block; }
+      .nav-legend i { width: 11px; height: 4px; border-radius: 3px; display: inline-block; }
       .nav-bottom {
         position: absolute; left: 0; right: 0; bottom: 0; z-index: 600; display: flex; align-items: center; gap: 12px;
         padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: #111418; color: #fff;
@@ -323,6 +351,44 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   });
   /** Última revisión del tráfico: minutos que faltaban y metros que faltaban en ese momento. */
   private readonly etaRef = signal<{ min: number; restanteM: number } | null>(null);
+  /** Próximo tramo con tráfico en lo que falta de la ruta (o el que se está atravesando). */
+  readonly trafficAhead = computed(() => {
+    const g = this.guide();
+    const a = this.along();
+    if (!g?.tramosTrafico?.length || this.cum.length < 2) return null;
+    for (const t of g.tramosTrafico) {
+      const ini = this.cum[Math.min(t.desde, this.cum.length - 1)] ?? 0;
+      const fin = this.cum[Math.min(t.hasta, this.cum.length - 1)] ?? ini;
+      if (fin <= a) continue;
+      const largo = Math.max(0, fin - Math.max(ini, a));
+      return { ...t, distancia: Math.max(0, ini - a), largo, dentro: ini <= a, demoraMin: Math.max(1, Math.round((t.demora_s ?? 0) / 60)) };
+    }
+    return null;
+  });
+  readonly delayTotalMin = computed(() => Math.round(this.guide()?.demoraTraficoMin ?? 0));
+
+  trafficTitle(nivel: string): string {
+    const w = this.trafficWord(nivel);
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }
+
+  trafficWord(nivel: string): string {
+    return nivel === 'detenido' ? 'tráfico detenido' : nivel === 'pesado' ? 'tráfico pesado' : 'tráfico lento';
+  }
+
+  /** Aviso hablado del tráfico de adelante (una vez por tramo, con tiempo para decidir). */
+  private announceTraffic(): void {
+    const t = this.trafficAhead();
+    if (!t || t.nivel === 'lento' && t.demoraMin < 2) return;
+    const clave = `t:${t.desde}`;
+    if (this.said.has(clave)) return;
+    if (t.dentro || t.distancia <= 1500) {
+      this.said.add(clave);
+      const donde = t.dentro ? 'Estás en una zona de' : `En ${spokenDistance(t.distancia)} hay`;
+      this.voice.speak(`${donde} ${this.trafficWord(t.nivel)} durante ${spokenDistance(t.largo)}. Unos ${t.demoraMin} ${t.demoraMin === 1 ? 'minuto' : 'minutos'} de demora.`, false);
+    }
+  }
+
   readonly etaMin = computed(() => {
     const g = this.guide();
     const t = this.total();
@@ -408,8 +474,9 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ─────────────── inicio y GPS ───────────────
 
-  start(): void {
+  start(conVoz = true): void {
     if (!this.dest) return;
+    this.voice.setEnabled(conVoz);
     this.voice.unlock();
     void this.keepAwake();
     this.error.set('');
@@ -507,7 +574,9 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         const evita = g.cierresEvitados.length ? ' Esta ruta rodea una calle cerrada.' : '';
         if (evita) this.flash('Esta ruta rodea una calle cerrada reportada.', 'ok');
-        this.voice.speak(`Ruta lista. ${resumen}${g.enVivo ? ' con el tráfico de ahora' : ''}.${evita}${primero}`);
+        const dem = Math.round(g.demoraTraficoMin ?? 0);
+        const trafico = g.enVivo ? (dem >= 2 ? ` El tráfico suma ${dem} minutos.` : ' El tráfico está fluido.') : '';
+        this.voice.speak(`Ruta lista. ${resumen}.${trafico}${evita}${primero}`);
       }
       this.said.add('0:n');
       this.following.set(true);
@@ -598,6 +667,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     this.announce(g);
+    this.announceTraffic();
     this.drawMe(pr.bearing);
   }
 
