@@ -95,6 +95,8 @@ export interface NavGuide {
   destino: { lat: number; lng: number; nombre: string | null };
   enVivo?: boolean;
   demoraTraficoMin?: number | null;
+  /** Tramos de la ruta con tráfico (índices del trazado). */
+  tramosTrafico?: { desde: number; hasta: number; nivel: 'lento' | 'pesado' | 'detenido' }[];
 }
 
 export interface TrafficStatus {

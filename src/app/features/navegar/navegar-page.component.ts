@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import * as L from 'leaflet';
 import {
   ArrowUp,
   ArrowUpLeft,
@@ -36,7 +35,7 @@ import { OfflineQueueService, isNetworkError } from '../../core/services/offline
 import { RoutingService } from '../../core/services/routing.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
-import { createOsmMap, glideTo } from '../../core/utils/map.utils';
+import { NavMap, TrafficSection, isNight } from './nav-map';
 import { LatLng, cumulative, lowerFirst, pointAt, projectOnPath, spokenDistance } from '../../core/utils/nav.util';
 
 type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
@@ -47,37 +46,52 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
   selector: 'app-navegar-page',
   imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
-    <div class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px)-var(--bnav,0px))] bg-slate-200 overflow-hidden">
-      <div #mapEl class="absolute inset-0 nav-map"></div>
+    <div class="relative h-[calc(var(--app-h)-4rem-env(safe-area-inset-top,0px)-var(--bnav,0px))] overflow-hidden" [class]="night() ? 'bg-[#1b2433]' : 'bg-slate-200'">
+      <div class="absolute inset-0"><div #mapEl style="width: 100%; height: 100%"></div></div>
 
       <!-- Indicación actual -->
       @if (phase() === 'guiando' && nextStep(); as st) {
-        <button
-          type="button"
-          class="absolute top-2 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[440px] z-[600] text-left rounded-2xl bg-[#0b1220] text-white shadow-2xl px-4 py-3 flex items-center gap-3"
-          title="Toca para repetir la indicación"
-          (click)="repeat()"
-        >
-          <span class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
-            <lucide-icon [img]="stepIcon(st)" [size]="28" />
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-[22px] font-bold leading-none tnum">{{ distLabel(distToNext()) }}</span>
-            <span class="block text-[14px] font-medium leading-snug mt-1">{{ st.texto }}</span>
-            @if (afterStep(); as nx) {
-              <span class="block text-[11.5px] text-slate-400 mt-0.5 truncate">Luego: {{ nx.texto }}</span>
-            }
-          </span>
-        </button>
+        <div class="absolute top-2 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[460px] z-[600]">
+          <button type="button" class="nav-turn w-full text-left" title="Toca para repetir la indicación" (click)="repeat()">
+            <span class="flex flex-col items-center justify-center shrink-0 w-14">
+              <lucide-icon [img]="stepIcon(st)" [size]="40" [strokeWidth]="2.6" />
+              <span class="text-[15px] font-bold tnum mt-0.5 whitespace-nowrap">{{ distLabel(distToNext()) }}</span>
+            </span>
+            <span class="min-w-0 flex-1 text-[19px] sm:text-[21px] font-semibold leading-tight">{{ st.texto }}</span>
+          </button>
+          @if (afterStep(); as nx) {
+            <div class="nav-then">Luego <lucide-icon [img]="stepIcon(nx)" [size]="20" [strokeWidth]="2.4" /></div>
+          }
+        </div>
       }
 
       @if (banner(); as b) {
-        <div class="absolute left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[440px] z-[600] rounded-xl px-3 py-2 text-[12.5px] font-medium shadow-lg flex items-start gap-2"
-          [style.top.px]="phase() === 'guiando' ? 112 : 8"
+        <div class="absolute left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[460px] z-[600] rounded-xl px-3 py-2 text-[12.5px] font-medium shadow-lg flex items-start gap-2"
+          [style.top.px]="phase() === 'guiando' ? (afterStep() ? 150 : 108) : 8"
           [class]="b.tone === 'warn' ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : b.tone === 'bad' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'">
           <lucide-icon [img]="b.tone === 'ok' ? okIcon : warnIcon" [size]="15" class="mt-0.5 shrink-0" />
           <span>{{ b.text }}</span>
         </div>
+      }
+
+      <!-- Botones del mapa -->
+      @if (phase() === 'guiando' && !closureSheet()) {
+        <div class="absolute right-3 z-[600] flex flex-col gap-3" style="bottom: calc(96px + env(safe-area-inset-bottom, 0px))">
+          <button type="button" class="nav-fab" title="Ver el mapa con el norte arriba" aria-label="Ver el mapa con el norte arriba" (click)="northUp()">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 16 12H8Z" fill="#ef4444"/><path d="M12 22 8 12h8Z" fill="currentColor" opacity=".85"/></svg>
+          </button>
+          <button type="button" class="nav-fab" [class.is-off]="!voice.enabled()" [title]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" [attr.aria-label]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" (click)="toggleVoice()">
+            <lucide-icon [img]="voice.enabled() ? volIcon : muteIcon" [size]="22" />
+          </button>
+          <button type="button" class="nav-fab is-warn" title="Reportar calle cerrada" aria-label="Reportar calle cerrada" (click)="closureSheet.set(true)">
+            <lucide-icon [img]="warnIcon" [size]="22" />
+          </button>
+        </div>
+        @if (!following()) {
+          <button type="button" class="absolute left-3 z-[600] px-4 py-2.5 rounded-full bg-white shadow-lg text-[13px] font-semibold text-blue-700 flex items-center gap-1.5" style="bottom: calc(96px + env(safe-area-inset-bottom, 0px))" (click)="recenter()">
+            <lucide-icon [img]="locateIcon" [size]="16" /> Centrar
+          </button>
+        }
       }
 
       <!-- Inicio -->
@@ -140,49 +154,55 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
 
       <!-- Barra inferior -->
       @if (phase() === 'guiando' && !closureSheet()) {
-        @if (!following()) {
-          <button type="button" class="absolute right-3 bottom-[104px] z-[600] px-3.5 py-2.5 rounded-full bg-white shadow-lg ring-1 ring-slate-200 text-[12.5px] font-semibold text-blue-700 flex items-center gap-1.5" (click)="recenter()">
-            <lucide-icon [img]="locateIcon" [size]="15" /> Centrar
-          </button>
-        }
-        <div class="absolute inset-x-2 bottom-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[440px] z-[600] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 px-3 py-2.5">
-          <div class="flex items-center gap-2">
-            <div class="min-w-0 flex-1">
-              <p class="text-[19px] font-bold text-slate-900 leading-none tnum">{{ etaMin() }} min <span class="text-[12.5px] font-semibold text-slate-500">· {{ remainingLabel() }}</span></p>
-              <p class="text-[11px] text-slate-500 mt-1 truncate">
-                @if (guide()?.enVivo) { <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 live-dot align-middle mr-1" title="Con tráfico en vivo"></span> }Llegada {{ etaClock() }} · {{ destName() }}
-                @if (rerouting()) { · <span class="text-blue-700 font-semibold">recalculando…</span> }
-              </p>
-            </div>
-            <button type="button" class="nav-btn" [class.is-off]="!voice.enabled()" [title]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" [attr.aria-label]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" (click)="toggleVoice()">
-              <lucide-icon [img]="voice.enabled() ? volIcon : muteIcon" [size]="19" />
-            </button>
-            <button type="button" class="nav-btn is-danger" title="Reportar calle cerrada" aria-label="Reportar calle cerrada" (click)="closureSheet.set(true)">
-              <lucide-icon [img]="banIcon" [size]="19" />
-            </button>
-            <button type="button" class="nav-btn" title="Salir de la navegación" aria-label="Salir de la navegación" (click)="exit()">
-              <lucide-icon [img]="xIcon" [size]="19" />
-            </button>
-          </div>
-          @if (routeId && !tracking.active()) {
-            <p class="text-[10.5px] text-amber-800 mt-1.5">
-              El GPS de tu unidad está apagado: el centro de control no ve tu posición.
-              <a routerLink="/mi-ubicacion" class="font-semibold underline">Activarlo</a>
+        <div class="nav-bottom">
+          <div class="min-w-0 flex-1 text-center">
+            <p class="text-[26px] font-bold leading-none tnum" [class]="(guide()?.demoraTraficoMin ?? 0) >= 5 ? 'text-amber-400' : 'text-emerald-400'">{{ etaMin() }} min</p>
+            <p class="text-[13px] text-slate-300 mt-1 tnum truncate">
+              @if (guide()?.enVivo) { <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot align-middle mr-1" title="Con tráfico en vivo"></span> }{{ etaClock() }} · {{ remainingLabel() }}
+              @if (rerouting()) { · <span class="text-sky-300 font-semibold">recalculando…</span> }
             </p>
-          }
+            @if (routeId && !tracking.active()) {
+              <p class="text-[10.5px] text-amber-300 mt-1">
+                El GPS de tu unidad está apagado. <a routerLink="/mi-ubicacion" class="font-semibold underline">Activarlo</a>
+              </p>
+            }
+          </div>
+          <button type="button" class="nav-exit" (click)="exit()">Salir</button>
         </div>
       }
     </div>
   `,
   styles: [
     `
-      .nav-btn {
-        width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-        background: #f1f5f9; color: #0f172a; transition: background .15s;
+      .nav-turn {
+        display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 18px;
+        background: #0f5b49; color: #fff; box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
       }
-      .nav-btn:hover { background: #e2e8f0; }
-      .nav-btn.is-off { background: #fee2e2; color: #b91c1c; }
-      .nav-btn.is-danger { background: #fee2e2; color: #b91c1c; }
+      .nav-then {
+        display: inline-flex; align-items: center; gap: 8px; margin-top: -6px; padding: 12px 14px 8px;
+        border-radius: 0 0 14px 14px; background: #0c4a3c; color: #fff; font-size: 15px; font-weight: 600;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, .3);
+      }
+      .nav-fab {
+        width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        background: #1f2937; color: #f8fafc; box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+      }
+      .nav-fab:active { transform: scale(.95); }
+      .nav-fab.is-off { color: #fca5a5; }
+      .nav-fab.is-warn { color: #fbbf24; }
+      .nav-bottom {
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 600; display: flex; align-items: center; gap: 12px;
+        padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: #111418; color: #fff;
+        border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px rgba(0, 0, 0, .3);
+      }
+      .nav-exit {
+        flex-shrink: 0; padding: 12px 26px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 17px; font-weight: 700;
+      }
+      .nav-exit:active { transform: scale(.97); }
+      .nav-turn:focus-visible, .nav-fab:focus-visible, .nav-exit:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+      @media (min-width: 640px) {
+        .nav-bottom { left: 50%; right: auto; width: 460px; transform: translateX(-50%); bottom: 12px; border-radius: 22px; padding-bottom: 14px; }
+      }
     `
   ]
 })
@@ -198,7 +218,6 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly voice = inject(VoiceService);
   private readonly queue = inject(OfflineQueueService);
   private readonly liveTraffic = inject(TrafficLayerService);
-  private detachTraffic: (() => void) | null = null;
   readonly tracking = inject(LocationTrackingService);
 
   readonly navIcon = Navigation;
@@ -246,13 +265,10 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeLock: { release: () => Promise<void> } | null = null;
 
-  private map: L.Map | null = null;
-  private line: L.Polyline | null = null;
-  private lineCase: L.Polyline | null = null;
-  private me: L.Marker | null = null;
-  private accCircle: L.Circle | null = null;
-  private destMarker: L.Marker | null = null;
-  private closureLayer: L.LayerGroup | null = null;
+  private nav: NavMap | null = null;
+  private rumbo = 0;
+  /** De noche el mapa y la pantalla se oscurecen. */
+  readonly night = signal(isNight());
 
   private readonly total = signal(0);
 
@@ -321,14 +337,19 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    const c: LatLng = this.dest ? [this.dest.lat, this.dest.lng] : [-12.0464, -77.0428];
-    this.map = createOsmMap(this.mapEl.nativeElement, c, 14);
-    this.detachTraffic = this.liveTraffic.attach(this.map);
-    this.closureLayer = L.layerGroup().addTo(this.map);
-    this.map.on('dragstart', () => this.following.set(false));
-    this.drawDest();
-    setTimeout(() => this.map?.invalidateSize(), 100);
     document.addEventListener('visibilitychange', this.onVisibility);
+    void this.initMap();
+  }
+
+  private async initMap(): Promise<void> {
+    const c: LatLng = this.dest ? [this.dest.lat, this.dest.lng] : [-12.0464, -77.0428];
+    const tiles = await this.liveTraffic.tiles();
+    if (!this.mapEl) return;
+    this.nav = new NavMap(this.mapEl.nativeElement, c, tiles, this.night());
+    this.nav.onManualMove(() => this.following.set(false));
+    this.drawDest();
+    if (this.path.length > 1) this.drawRoute();
+    setTimeout(() => this.nav?.resize(), 100);
   }
 
   ngOnDestroy(): void {
@@ -339,9 +360,9 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     document.removeEventListener('visibilitychange', this.onVisibility);
     void this.wakeLock?.release().catch(() => undefined);
     this.voice.stop();
-    this.detachTraffic?.();
-    this.map?.remove();
-    this.map = null;
+    if (this.overviewTimer) clearTimeout(this.overviewTimer);
+    this.nav?.remove();
+    this.nav = null;
   }
 
   private readonly onVisibility = (): void => {
@@ -677,7 +698,12 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
 
   recenter(): void {
     this.following.set(true);
-    if (this.pos && this.map) this.map.setView([this.pos.lat, this.pos.lng], Math.max(this.map.getZoom(), 17), { animate: true });
+    this.nav?.recenter(this.pos ? [this.pos.lat, this.pos.lng] : null, this.rumbo);
+  }
+
+  northUp(): void {
+    this.following.set(false);
+    this.nav?.northUp();
   }
 
   exit(): void {
@@ -727,61 +753,40 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   // ─────────────── mapa ───────────────
 
   private drawDest(): void {
-    if (!this.map || !this.dest) return;
-    this.destMarker?.remove();
-    this.destMarker = L.marker([this.dest.lat, this.dest.lng], {
-      icon: L.divIcon({
-        className: '',
-        html: '<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 2px 6px rgba(15,23,42,.35)"></div>',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11]
-      })
-    })
-      .bindTooltip('Destino')
-      .addTo(this.map);
+    if (this.nav && this.dest) this.nav.setDest([this.dest.lat, this.dest.lng]);
   }
 
+  private overviewTimer: ReturnType<typeof setTimeout> | null = null;
+  private shownOverview = false;
+
   private drawRoute(): void {
-    if (!this.map) return;
-    this.line?.remove();
-    this.lineCase?.remove();
-    this.lineCase = L.polyline(this.path, { color: '#ffffff', weight: 10, opacity: 0.95, interactive: false }).addTo(this.map);
-    this.line = L.polyline(this.path, { color: '#2563eb', weight: 6, opacity: 0.95, interactive: false }).addTo(this.map);
-    if (this.pos) this.map.setView([this.pos.lat, this.pos.lng], 17);
-    else this.map.fitBounds(this.line.getBounds().pad(0.15));
+    if (!this.nav) return;
+    this.nav.setRoute(this.path, (this.guide()?.tramosTrafico ?? []) as TrafficSection[]);
+    if (!this.pos) {
+      this.nav.overview(this.path);
+      return;
+    }
+    // Solo al empezar: se ve la ruta completa un momento y luego la vista de manejo.
+    if (this.shownOverview) {
+      if (this.following()) this.recenter();
+      return;
+    }
+    this.shownOverview = true;
+    if (this.overviewTimer) clearTimeout(this.overviewTimer);
+    this.nav.setFollowing(false);
+    this.nav.overview(this.path, 140);
+    this.overviewTimer = setTimeout(() => {
+      if (this.following()) this.recenter();
+    }, 2600);
   }
 
   private drawMe(rumboRuta?: number): void {
-    if (!this.map || !this.pos) return;
-    const ll: L.LatLngTuple = [this.pos.lat, this.pos.lng];
-    const rumbo = this.pos.heading ?? rumboRuta ?? 0;
-    const html = `<div style="width:34px;height:34px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;transform:rotate(${Math.round(rumbo)}deg)"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M12 2 4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg></div>`;
-    const icon = L.divIcon({ className: '', html, iconSize: [34, 34], iconAnchor: [17, 17] });
-    if (!this.me) {
-      this.accCircle = L.circle(ll, { radius: this.pos.acc, color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.12, interactive: false }).addTo(this.map);
-      this.me = L.marker(ll, { icon, zIndexOffset: 1000, interactive: false }).addTo(this.map);
-    } else {
-      this.me.setIcon(icon);
-      glideTo(this.me, ll, 800);
-      if (this.accCircle) {
-        this.accCircle.setRadius(this.pos.acc);
-        glideTo(this.accCircle, ll, 800);
-      }
-    }
-    if (this.following() && this.phase() === 'guiando') this.map.setView(ll, Math.max(this.map.getZoom(), 16), { animate: true });
+    if (!this.nav || !this.pos) return;
+    this.rumbo = this.pos.heading ?? rumboRuta ?? this.rumbo;
+    this.nav.setMe([this.pos.lat, this.pos.lng], this.rumbo, this.pos.speed, this.phase() === 'guiando');
   }
 
   private drawClosures(cierres: TrafficEvent[]): void {
-    if (!this.closureLayer) return;
-    this.closureLayer.clearLayers();
-    const icon = L.divIcon({
-      className: '',
-      html: '<div style="width:24px;height:24px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 2px 6px rgba(15,23,42,.4);display:flex;align-items:center;justify-content:center"><div style="width:12px;height:4px;border-radius:2px;background:#fff"></div></div>',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
-    });
-    for (const c of cierres) {
-      L.marker([c.lat, c.lng], { icon, zIndexOffset: 500 }).bindTooltip(`Calle cerrada: ${c.descripcion}`).addTo(this.closureLayer);
-    }
+    this.nav?.setClosures(cierres);
   }
 }
