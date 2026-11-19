@@ -52,7 +52,9 @@ export class TrafficLayerService {
   async tiles(): Promise<{ base: string; traffic: string; flujo?: string } | null> {
     const c = await this.info();
     if (!c.disponible || !c.url || !c.base) return null;
-    return { base: `${this.api.baseUrl}${c.base}`, traffic: `${this.api.baseUrl}${c.url}`, flujo: c.flujo ? `${this.api.baseUrl}${c.flujo}` : undefined };
+    // Direcciones completas: el mapa vectorial descarga los cuadros desde otro proceso, donde «/api/…» no se resuelve.
+    const abs = (u: string) => new URL(`${this.api.baseUrl}${u}`, location.origin).toString().replace(/%7B/g, '{').replace(/%7D/g, '}');
+    return { base: abs(c.base), traffic: abs(c.url), flujo: c.flujo ? abs(c.flujo) : undefined };
   }
 
   private async info(): Promise<CapaTrafico> {
