@@ -16,6 +16,8 @@ export class ConfirmService {
   readonly current = signal<ConfirmRequest | null>(null);
 
   ask(message: string, opts: { okLabel?: string; danger?: boolean } = {}): Promise<boolean> {
+    // Preferencia de seguridad: el usuario puede pedir que no se le confirme cada acción.
+    if (this.skipByPreference()) return Promise.resolve(true);
     this.current()?.resolve(false);
     return new Promise((resolve) => {
       this.current.set({ message, okLabel: opts.okLabel ?? 'Aceptar', danger: opts.danger ?? true, resolve });
@@ -26,5 +28,16 @@ export class ConfirmService {
     const req = this.current();
     this.current.set(null);
     req?.resolve(ok);
+  }
+
+  private skipByPreference(): boolean {
+    try {
+      // Se lee del perfil guardado para no crear una dependencia circular con AuthService.
+      const raw = localStorage.getItem('truckgps_profile');
+      const prefs = raw ? (JSON.parse(raw) as { preferencias?: { seguridad?: { confirmar_acciones?: boolean } } }).preferencias : null;
+      return prefs?.seguridad?.confirmar_acciones === false;
+    } catch {
+      return false;
+    }
   }
 }

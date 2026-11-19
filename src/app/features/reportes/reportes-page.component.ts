@@ -31,9 +31,13 @@ import {
   Sparkles,
   TrendingDown
 } from 'lucide-angular';
+import { ActivatedRoute, Router } from '@angular/router';
 import { LayoutService } from '../../core/services/layout.service';
 import { ReportsService } from '../../core/services/reports.service';
 import { createOsmMap } from '../../core/utils/map.utils';
+import { InformeComponent } from './informes.component';
+
+type Pestana = 'resumen' | 'seguridad' | 'rutas';
 
 Chart.register(...registerables);
 
@@ -50,9 +54,22 @@ const COLORS = {
 @Component({
   standalone: true,
   selector: 'app-reportes-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, InformeComponent],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
+
+      <nav class="flex gap-1 p-1 mb-6 rounded-xl bg-slate-100 w-fit max-w-full overflow-x-auto" role="tablist" aria-label="Tipo de reporte">
+        @for (t of pestanas; track t.id) {
+          <button type="button" role="tab" [attr.aria-selected]="tab() === t.id" (click)="cambiar(t.id)"
+            class="px-3.5 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap transition-colors"
+            [class]="tab() === t.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'">{{ t.label }}</button>
+        }
+      </nav>
+
+      @if (tab() === 'seguridad') { <app-informe tipo="seguridad" /> }
+      @if (tab() === 'rutas') { <app-informe tipo="rutas" /> }
+
+      <div [class.hidden]="tab() !== 'resumen'">
 
       <!-- ═══════════ ENCABEZADO ═══════════ -->
       <div class="flex items-end justify-between flex-wrap gap-4 mb-6">
@@ -189,6 +206,7 @@ const COLORS = {
           }
         </ul>
       </section>
+      </div>
     </div>
   `
 })
@@ -196,6 +214,21 @@ export class ReportesPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly reports = inject(ReportsService);
   private readonly layout = inject(LayoutService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  readonly pestanas: { id: Pestana; label: string }[] = [
+    { id: 'resumen', label: 'Resumen' },
+    { id: 'seguridad', label: 'Seguridad del día' },
+    { id: 'rutas', label: 'Desempeño de rutas' }
+  ];
+  readonly tab = signal<Pestana>('resumen');
+
+  cambiar(t: Pestana): void {
+    this.tab.set(t);
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { tab: t === 'resumen' ? null : t }, replaceUrl: true });
+    if (t === 'resumen') setTimeout(() => this.map?.invalidateSize(), 0);
+  }
 
   @ViewChild('heatmapEl') heatmapEl!: ElementRef<HTMLDivElement>;
   @ViewChild('barsCanvas') barsCanvas!: ElementRef<HTMLCanvasElement>;
@@ -278,6 +311,8 @@ export class ReportesPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private charts: Chart[] = [];
 
   ngOnInit(): void {
+    const q = this.route.snapshot.queryParamMap.get('tab');
+    if (q === 'seguridad' || q === 'rutas') this.tab.set(q);
     this.layout.setPage('Reportes Predictivos', 'Análisis y mapas de calor de incidencias');
   }
 

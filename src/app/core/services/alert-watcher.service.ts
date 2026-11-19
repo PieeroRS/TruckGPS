@@ -110,13 +110,30 @@ export class AlertWatcherService {
     return `${a.id}:${a.severidad}`;
   }
 
+  /** Respeta las preferencias de notificaciones del usuario (Mi perfil / asistente inicial). */
+  private wanted(a: AiAlert): boolean {
+    const n = this.auth.prefs().notificaciones;
+    if (!n.en_app) return false;
+    const tipo: string = a.tipo ?? '';
+    if (tipo === 'desvio') return n.desvios;
+    if (tipo === 'exceso_velocidad') return n.velocidad;
+    if (tipo === 'incidente' || tipo === 'panico') return n.incidencias;
+    if (a.severidad === 'high') return n.alta_severidad;
+    return true;
+  }
+
   private announce(a: AiAlert): void {
+    if (!this.wanted(a)) return;
+    const sonido = this.auth.prefs().notificaciones.sonido;
     this.toasts.update((t) => [{ alert: a, at: Date.now() }, ...t.filter((x) => x.alert.id !== a.id)].slice(0, 3));
     setTimeout(() => this.dismissToast(a.id), a.severidad === 'high' ? 20_000 : 10_000);
-    try {
-      navigator.vibrate?.(a.severidad === 'high' ? [250, 120, 250, 120, 400] : [200]);
-    } catch {
-      /* sin vibración */
+    if (sonido) {
+      try {
+        navigator.vibrate?.(a.severidad === 'high' ? [250, 120, 250, 120, 400] : [200]);
+      } catch {
+        /* sin vibración */
+      }
+      this.beep(a.severidad === 'high');
     }
     if (this.notifPermission() === 'granted' && document.hidden) {
       try {
@@ -125,6 +142,29 @@ export class AlertWatcherService {
       } catch {
         /* algunos navegadores móviles sólo permiten notificaciones desde un service worker */
       }
+    }
+  }
+
+  private beep(alta: boolean): void {
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const tonos = alta ? [880, 660, 880] : [740];
+      tonos.forEach((f, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.22);
+        g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + i * 0.22 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.22 + 0.18);
+        o.connect(g).connect(ctx.destination);
+        o.start(ctx.currentTime + i * 0.22);
+        o.stop(ctx.currentTime + i * 0.22 + 0.2);
+      });
+      setTimeout(() => void ctx.close(), 1200);
+    } catch {
+      /* el navegador no permite sonido sin interacción previa */
     }
   }
 }
