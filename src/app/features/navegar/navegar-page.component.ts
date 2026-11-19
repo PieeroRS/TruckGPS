@@ -150,7 +150,7 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
             <div class="min-w-0 flex-1">
               <p class="text-[19px] font-bold text-slate-900 leading-none tnum">{{ etaMin() }} min <span class="text-[12.5px] font-semibold text-slate-500">· {{ remainingLabel() }}</span></p>
               <p class="text-[11px] text-slate-500 mt-1 truncate">
-                Llegada {{ etaClock() }} · {{ destName() }}
+                @if (guide()?.enVivo) { <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 live-dot align-middle mr-1" title="Con tráfico en vivo"></span> }Llegada {{ etaClock() }} · {{ destName() }}
                 @if (rerouting()) { · <span class="text-blue-700 font-semibold">recalculando…</span> }
               </p>
             </div>
@@ -242,6 +242,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private said = new Set<string>();
   private unavoidable = new Set<string>();
   private closureTimer: ReturnType<typeof setInterval> | null = null;
+  private trafficTimer: ReturnType<typeof setInterval> | null = null;
   private bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeLock: { release: () => Promise<void> } | null = null;
 
@@ -281,10 +282,14 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     this.guide();
     return Math.max(0, this.total() - this.along());
   });
+  /** Última revisión del tráfico: minutos que faltaban y metros que faltaban en ese momento. */
+  private readonly etaRef = signal<{ min: number; restanteM: number } | null>(null);
   readonly etaMin = computed(() => {
     const g = this.guide();
     const t = this.total();
     if (!g || !t) return 0;
+    const ref = this.etaRef();
+    if (ref && ref.restanteM > 0) return Math.max(1, Math.round((ref.min * this.remainingM()) / ref.restanteM));
     return Math.max(1, Math.round((g.durationTrafficMin * this.remainingM()) / t));
   });
 
@@ -329,6 +334,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
     if (this.closureTimer) clearInterval(this.closureTimer);
+    if (this.trafficTimer) clearInterval(this.trafficTimer);
     if (this.bannerTimer) clearTimeout(this.bannerTimer);
     document.removeEventListener('visibilitychange', this.onVisibility);
     void this.wakeLock?.release().catch(() => undefined);
@@ -382,6 +388,8 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 }
     );
     if (!this.closureTimer) this.closureTimer = setInterval(() => void this.checkClosures(), 20000);
+    // Cada 5 minutos: ¿el tráfico de más adelante empeoró y hay una ruta más rápida?
+    if (!this.trafficTimer) this.trafficTimer = setInterval(() => void this.checkTraffic(), 5 * 60 * 1000);
   }
 
   private fail(msg: string): void {
@@ -431,6 +439,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       this.said = new Set<string>();
       this.offCount = 0;
       this.along.set(0);
+      this.etaRef.set(null);
       this.guide.set(g);
       this.drawRoute();
       this.phase.set('guiando');
@@ -450,7 +459,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         const evita = g.cierresEvitados.length ? ' Esta ruta rodea una calle cerrada.' : '';
         if (evita) this.flash('Esta ruta rodea una calle cerrada reportada.', 'ok');
-        this.voice.speak(`Ruta lista. ${resumen}.${evita}${primero}`);
+        this.voice.speak(`Ruta lista. ${resumen}${g.enVivo ? ' con el tráfico de ahora' : ''}.${evita}${primero}`);
       }
       this.said.add('0:n');
       this.following.set(true);
@@ -463,6 +472,57 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     } finally {
       this.rerouting.set(false);
     }
+  }
+
+  /** Revisa el tráfico de lo que falta. Si hay una ruta que ahorra tiempo, la toma y lo avisa. */
+  private async checkTraffic(): Promise<void> {
+    if (document.hidden || this.phase() !== 'guiando' || this.rerouting() || !this.pos || this.path.length < 2) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (this.remainingM() < 1500) return;
+    const restante = this.remainingPath(300);
+    let r;
+    try {
+      r = await this.routing.trafficCheck({ origin: { lat: this.pos.lat, lng: this.pos.lng }, routeId: this.routeId, remaining: restante });
+    } catch {
+      return; // sin señal o servidor ocupado: se intenta en la próxima revisión
+    }
+    if (!r.disponible || this.phase() !== 'guiando') return;
+    if (!r.cambio || !r.guia) {
+      if (r.etaMin) this.etaRef.set({ min: r.etaMin, restanteM: this.remainingM() });
+      return;
+    }
+    const g = r.guia;
+    if (!g.geometry?.length || g.geometry.length < 2) return;
+    this.path = g.geometry;
+    this.cum = cumulative(this.path);
+    this.total.set(this.cum[this.cum.length - 1] ?? 0);
+    this.said = new Set<string>();
+    this.offCount = 0;
+    this.along.set(0);
+    this.etaRef.set(null);
+    this.guide.set(g);
+    this.lastGuideAt = Date.now();
+    this.drawRoute();
+    const ahorro = Math.max(1, Math.round(r.ahorroMin ?? 0));
+    // A mitad de viaje se anuncia la próxima maniobra (no la salida).
+    const sig = g.steps.find((st, i) => i > 0 && st.tipo !== 'arrive');
+    const primero = sig ? ` En ${spokenDistance(sig.along_m)}, ${lowerFirst(sig.texto)}.` : '';
+    this.flash(`Hay tráfico más adelante: nueva ruta más rápida, ahorras unos ${ahorro} min.`, 'ok', 10000);
+    this.voice.speak(`Hay tráfico más adelante. Tomando una ruta más rápida. Ahorras unos ${ahorro} minutos.${primero}`);
+    this.said.add('0:n');
+    this.progress();
+  }
+
+  /** Lo que falta de la ruta, desde la posición actual, con como máximo `max` puntos. */
+  private remainingPath(max: number): [number, number][] {
+    const desde = this.along();
+    let i = this.cum.findIndex((c) => c > desde);
+    if (i < 0) i = this.path.length - 1;
+    const resto = this.path.slice(i);
+    const pts: [number, number][] = [[this.pos!.lat, this.pos!.lng], ...resto];
+    if (pts.length <= max) return pts;
+    const paso = (pts.length - 1) / (max - 1);
+    return Array.from({ length: max }, (_, k) => pts[Math.round(k * paso)]);
   }
 
   /** Avance sobre la ruta: indicaciones, desvíos y llegada. */
@@ -639,7 +699,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   etaClock(): string {
-    return new Date(Date.now() + this.etaMin() * 60000).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    return new Date(Date.now() + this.etaMin() * 60000).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   stepIcon(st: NavStep) {

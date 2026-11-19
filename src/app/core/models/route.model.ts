@@ -17,6 +17,10 @@ export interface RoutePlan {
   durationTrafficMin?: number;
   trafficLevel?: 'fluido' | 'moderado' | 'congestionado';
   franja?: string;
+  /** El tiempo viene del tráfico real de este momento (TomTom), no de la estimación por hora. */
+  enVivo?: boolean;
+  /** Minutos de demora por el tráfico frente a la vía libre. */
+  demoraTraficoMin?: number;
   eventos?: { id: string; descripcion: string; nivel: string; demora_min: number }[];
   /** Calles cerradas que esta ruta rodea. */
   cierresEvitados?: { id: string; descripcion: string }[];
@@ -89,6 +93,8 @@ export interface NavGuide {
   cierresEnRuta: ClosureBrief[];
   rutaActualizada: boolean;
   destino: { lat: number; lng: number; nombre: string | null };
+  enVivo?: boolean;
+  demoraTraficoMin?: number | null;
 }
 
 export interface TrafficStatus {
@@ -172,4 +178,14 @@ export function statusBadge(status: NavRouteStatus): string {
     cancelada: 'badge-danger'
   };
   return map[status];
+}
+
+/** Revisión del tráfico durante la navegación. */
+export interface TrafficCheck {
+  disponible: boolean;
+  cambio?: boolean;
+  ahorroMin?: number;
+  /** Minutos que faltan por la ruta actual con el tráfico de ahora. */
+  etaMin?: number;
+  guia?: NavGuide;
 }
