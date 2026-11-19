@@ -26,6 +26,7 @@
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "lucide-angular": "^1.0.0",
+    "maplibre-gl": "^4.7.1",
     "rxjs": "~7.8.0",
     "tailwindcss": "^4.3.1",
     "tslib": "^2.3.0"
