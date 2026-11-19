@@ -288,8 +288,8 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                   <div class="text-lg font-bold">{{ formatDuration(p.durationTrafficMin ?? p.durationMin) }}</div>
                 </div>
                 <div>
-                  <div class="text-[10px] text-slate-400 uppercase">Tarifa ref.</div>
-                  <div class="text-lg font-bold">S/ {{ fare() }}</div>
+                  <div class="text-[10px] text-slate-400 uppercase">Llegada</div>
+                  <div class="text-lg font-bold tnum">{{ arrivalClock(p.durationTrafficMin ?? p.durationMin) }}</div>
                 </div>
               </div>
               @if (p.durationTrafficMin != null) {
@@ -1296,12 +1296,6 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
     } finally {
       this.planning.set(false);
     }
-  }
-
-  fare(): number {
-    const p = this.plan();
-    if (!p) return 0;
-    return Math.round(p.distanceKm * 2.8 * 100) / 100;
   }
 
   /** 1.12 → "12 % más"; 0.95 → "5 % menos". */
