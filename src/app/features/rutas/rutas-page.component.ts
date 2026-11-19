@@ -528,9 +528,9 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                         <div class="h-full bg-emerald-500 transition-all duration-700" [style.width.%]="r.progressPct"></div>
                       </div>
                     }
-                    @if (!isSimLoop(r) && (r.status === 'en-curso' || r.status === 'asignada')) {
-                      <button type="button" class="mb-2 text-[10.5px] font-semibold px-2.5 py-1 rounded bg-blue-600 text-white inline-flex items-center gap-1" (click)="navigateRoute(r, $event)">
-                        <lucide-icon [img]="voiceIcon" [size]="11" /> Navegar con voz
+                    @if (!isSimLoop(r) && (r.status === 'en-curso' || r.status === 'asignada' || r.status === 'solicitada')) {
+                      <button type="button" class="mb-1 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white inline-flex items-center gap-1.5" (click)="navigateRoute(r, $event)">
+                        <lucide-icon [img]="voiceIcon" [size]="13" /> Navegar con voz
                       </button>
                     }
                     @if (isSimLoop(r)) {
