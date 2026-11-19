@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 
 import { ApiService } from '../api/api.service';
-import { GeoPlace, NavGuide, RouteHistoryStats, RoutePlan, TrafficEvent, TrafficStatus } from '../models/route.model';
+import { GeoPlace, NavGuide, RouteHistoryStats, RoutePlan, TrafficCheck, TrafficEvent, TrafficStatus } from '../models/route.model';
 
 type PlanResponse = {
   rutas: {
@@ -10,6 +10,8 @@ type PlanResponse = {
     duration_traffic_min: number;
     traffic_level: 'fluido' | 'moderado' | 'congestionado';
     franja: string;
+    en_vivo?: boolean;
+    delay_min?: number;
     eventos: { id: string; descripcion: string; nivel: string; demora_min: number }[];
     cierres_evitados?: { id: string; descripcion: string }[];
     pasa_por_cierre?: boolean;
@@ -60,6 +62,8 @@ export class RoutingService {
           durationTrafficMin: Math.round(r.duration_traffic_min),
           trafficLevel: r.traffic_level,
           franja: r.franja,
+          enVivo: !!r.en_vivo,
+          demoraTraficoMin: r.delay_min != null ? Math.round(r.delay_min) : undefined,
           eventos: r.eventos,
           cierresEvitados: r.cierres_evitados ?? [],
           pasaPorCierre: !!r.pasa_por_cierre,
@@ -89,6 +93,16 @@ export class RoutingService {
       dest_lng: input.dest?.lng ?? null,
       route_id: input.routeId ?? null,
       motivo: input.motivo ?? 'inicio'
+    });
+  }
+
+  /** ¿Hay una ruta más rápida por el tráfico de ahora? (durante la navegación) */
+  trafficCheck(input: { origin: { lat: number; lng: number }; routeId?: string | null; remaining: [number, number][] }): Promise<TrafficCheck> {
+    return this.api.post<TrafficCheck>('/nav-routes/guia/trafico', {
+      origin_lat: input.origin.lat,
+      origin_lng: input.origin.lng,
+      route_id: input.routeId ?? null,
+      ruta_actual: input.remaining
     });
   }
 

@@ -22,6 +22,8 @@ export class TrafficLayerService {
 
   /** Preferencia del usuario (se recuerda en este equipo). */
   readonly enabled = signal(this.readPref());
+  /** El servidor tiene TomTom configurado (null mientras no se sabe). */
+  readonly available = signal<boolean | null>(null);
   private capa: CapaTrafico | null = null;
   private loading: Promise<CapaTrafico> | null = null;
 
@@ -50,6 +52,7 @@ export class TrafficLayerService {
       .catch(() => ({ disponible: false }) as CapaTrafico)
       .then((c) => {
         this.capa = c;
+        this.available.set(c.disponible);
         this.loading = null;
         return c;
       });

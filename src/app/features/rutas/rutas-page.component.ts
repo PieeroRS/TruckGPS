@@ -284,7 +284,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                   <div class="text-lg font-bold">{{ p.distanceKm }} <span class="text-xs font-normal">km</span></div>
                 </div>
                 <div>
-                  <div class="text-[10px] text-slate-400 uppercase">{{ p.durationTrafficMin != null ? 'Con tráfico' : 'Tiempo est.' }}</div>
+                  <div class="text-[10px] text-slate-400 uppercase">{{ p.enVivo ? 'Con tráfico ahora' : p.durationTrafficMin != null ? 'Con tráfico' : 'Tiempo est.' }}</div>
                   <div class="text-lg font-bold">{{ formatDuration(p.durationTrafficMin ?? p.durationMin) }}</div>
                 </div>
                 <div>
@@ -293,9 +293,20 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
                 </div>
               </div>
               @if (p.durationTrafficMin != null) {
-                <p class="text-[10.5px] text-slate-400 mt-2 leading-snug">
-                  Sin tráfico: {{ formatDuration(p.durationMin) }} · estimado para {{ p.franja }}@if (p.eventos?.length) {; pasa por {{ p.eventos!.length }} evento(s) de tráfico (+{{ eventDelay(p) }} min)}.
-                </p>
+                @if (p.enVivo) {
+                  <p class="text-[11px] text-slate-300 mt-2 leading-snug flex items-start gap-1.5">
+                    <span class="mt-1 w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 live-dot"></span>
+                    <span>
+                      Tráfico en vivo · llegas a las <strong class="text-white">{{ arrivalClock(p.durationTrafficMin!) }}</strong>.
+                      @if ((p.demoraTraficoMin ?? 0) >= 1) { El tráfico suma {{ p.demoraTraficoMin }} min. } @else { Vía despejada. }
+                      Sin tráfico: {{ formatDuration(p.durationMin) }}.
+                    </span>
+                  </p>
+                } @else {
+                  <p class="text-[10.5px] text-slate-400 mt-2 leading-snug">
+                    Sin tráfico: {{ formatDuration(p.durationMin) }} · estimado para {{ p.franja }}@if (p.eventos?.length) {; pasa por {{ p.eventos!.length }} evento(s) de tráfico (+{{ eventDelay(p) }} min)}.
+                  </p>
+                }
               }
               @if (p.durationPredMin != null) {
                 <div class="mt-3 pt-3 border-t border-white/10 flex items-center justify-between gap-2">
@@ -442,7 +453,15 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
             <p class="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{{ formError() }}</p>
           }
 
-          @if (traffic(); as t) {
+          @if (liveTraffic.available()) {
+            <div class="rounded-lg border border-slate-200 px-3 py-2 text-[11.5px] text-slate-600 flex items-start gap-2">
+              <span class="w-2 h-2 rounded-full mt-1 shrink-0 bg-emerald-500 live-dot"></span>
+              <span>
+                <strong>Tráfico en vivo.</strong> Las rutas y la hora de llegada usan el tráfico de este momento.
+                @if (traffic()?.eventos?.length) { · {{ traffic()!.eventos.length }} evento(s) reportados en el mapa }
+              </span>
+            </div>
+          } @else if (traffic(); as t) {
             <div class="rounded-lg border border-slate-200 px-3 py-2 text-[11.5px] text-slate-600 flex items-start gap-2">
               <span class="w-2 h-2 rounded-full mt-1 shrink-0" [class]="t.nivel === 'congestionado' ? 'bg-red-500' : t.nivel === 'moderado' ? 'bg-amber-500' : 'bg-emerald-500'"></span>
               <span>
@@ -696,7 +715,7 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly places = inject(PlacesService);
   private readonly router = inject(Router);
   private readonly navSession = inject(NavSessionService);
-  private readonly liveTraffic = inject(TrafficLayerService);
+  readonly liveTraffic = inject(TrafficLayerService);
   private detachTraffic: (() => void) | null = null;
 
   readonly destSearching = signal(false);
@@ -1294,6 +1313,11 @@ export class RutasPageComponent implements OnInit, AfterViewInit, OnDestroy {
   barPct(min: number, h: { porFranja?: { prediccionMin: number }[] }): number {
     const max = Math.max(...(h.porFranja ?? []).map((f) => f.prediccionMin), 1);
     return Math.max(8, Math.round((min / max) * 100));
+  }
+
+  /** Hora de llegada si se sale ahora. */
+  arrivalClock(min: number): string {
+    return new Date(Date.now() + min * 60000).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   formatDuration(min: number): string {
