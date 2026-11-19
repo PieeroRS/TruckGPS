@@ -80,6 +80,11 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
           <button type="button" class="nav-fab" title="Ver el mapa con el norte arriba" aria-label="Ver el mapa con el norte arriba" (click)="northUp()">
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 16 12H8Z" fill="#ef4444"/><path d="M12 22 8 12h8Z" fill="currentColor" opacity=".85"/></svg>
           </button>
+          @if (hasTraffic()) {
+            <button type="button" class="nav-fab" [class.is-traffic]="liveTraffic.enabled()" [attr.aria-pressed]="liveTraffic.enabled()" [title]="liveTraffic.enabled() ? 'Ocultar el tráfico' : 'Ver el tráfico'" [attr.aria-label]="liveTraffic.enabled() ? 'Ocultar el tráfico' : 'Ver el tráfico'" (click)="toggleTraffic()">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="7" r="1.6" fill="#ef4444" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="#f59e0b" stroke="none"/><circle cx="12" cy="17" r="1.6" fill="#22c55e" stroke="none"/></svg>
+            </button>
+          }
           <button type="button" class="nav-fab" [class.is-off]="!voice.enabled()" [title]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" [attr.aria-label]="voice.enabled() ? 'Silenciar la voz' : 'Activar la voz'" (click)="toggleVoice()">
             <lucide-icon [img]="voice.enabled() ? volIcon : muteIcon" [size]="22" />
           </button>
@@ -190,6 +195,7 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
       .nav-fab:active { transform: scale(.95); }
       .nav-fab.is-off { color: #fca5a5; }
       .nav-fab.is-warn { color: #fbbf24; }
+      .nav-fab.is-traffic { background: #14532d; }
       .nav-bottom {
         position: absolute; left: 0; right: 0; bottom: 0; z-index: 600; display: flex; align-items: center; gap: 12px;
         padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: #111418; color: #fff;
@@ -217,7 +223,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly session = inject(NavSessionService);
   readonly voice = inject(VoiceService);
   private readonly queue = inject(OfflineQueueService);
-  private readonly liveTraffic = inject(TrafficLayerService);
+  readonly liveTraffic = inject(TrafficLayerService);
   readonly tracking = inject(LocationTrackingService);
 
   readonly navIcon = Navigation;
@@ -269,6 +275,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   private rumbo = 0;
   /** De noche el mapa y la pantalla se oscurecen. */
   readonly night = signal(isNight());
+  readonly hasTraffic = signal(false);
 
   private readonly total = signal(0);
 
@@ -346,6 +353,8 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const tiles = await this.liveTraffic.tiles();
     if (!this.mapEl) return;
     this.nav = new NavMap(this.mapEl.nativeElement, c, tiles, this.night());
+    this.hasTraffic.set(this.nav.hasTraffic());
+    this.nav.setTrafficVisible(this.liveTraffic.enabled());
     this.nav.onManualMove(() => this.following.set(false));
     this.drawDest();
     if (this.path.length > 1) this.drawRoute();
@@ -699,6 +708,12 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   recenter(): void {
     this.following.set(true);
     this.nav?.recenter(this.pos ? [this.pos.lat, this.pos.lng] : null, this.rumbo);
+  }
+
+  toggleTraffic(): void {
+    const on = !this.liveTraffic.enabled();
+    this.liveTraffic.setEnabled(on);
+    this.nav?.setTrafficVisible(on);
   }
 
   northUp(): void {
