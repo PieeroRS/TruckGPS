@@ -74,6 +74,8 @@ const FLOW_LAYERS: StyleSpecification['layers'] = [
     id: 'flow',
     type: 'line',
     source: 'flow',
+    // Con la ciudad entera a la vista el tráfico de todas las calles solo estorba: aparece al acercarse.
+    minzoom: 12.5,
     'source-layer': 'Traffic flow',
     filter: ['!', ['to-boolean', ['get', 'road_closure']]],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -89,14 +91,15 @@ const FLOW_LAYERS: StyleSpecification['layers'] = [
         0.75,
         FLOW_COLORS.fluido
       ],
-      'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 1.2, 14, 2.6, 17, 5, 19, 9],
-      'line-opacity': 0.9
+      'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 12.5, 1, 14, 2, 17, 4, 19, 7],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.5, 0.8]
     }
   },
   {
     id: 'flow-closed',
     type: 'line',
     source: 'flow',
+    minzoom: 12.5,
     'source-layer': 'Traffic flow',
     filter: ['to-boolean', ['get', 'road_closure']],
     paint: {
@@ -108,6 +111,50 @@ const FLOW_LAYERS: StyleSpecification['layers'] = [
 ];
 
 const EMPTY = { type: 'geojson' as const, data: { type: 'FeatureCollection' as const, features: [] } };
+
+/**
+ * Paleta de noche legible (el estilo oscuro original pinta las calles casi del color del fondo):
+ * fondo azul pizarra, calles grises claras, vías principales en tono arena y nombres claros.
+ */
+const NIGHT: Record<string, Record<string, unknown>> = {
+  background: { 'background-color': '#1e2733' },
+  water: { 'fill-color': '#0e1b2c' },
+  waterway: { 'line-color': '#0e1b2c' },
+  landuse_residential: { 'fill-color': '#222d3a' },
+  landcover_wood: { 'fill-color': '#1c2f27' },
+  landuse_park: { 'fill-color': '#1c2f27' },
+  building: { 'fill-color': '#2a3543' },
+  'aeroway-area': { 'fill-color': '#26303d' },
+  'aeroway-runway': { 'line-color': '#3a4555' },
+  'aeroway-taxiway': { 'line-color': '#334051' },
+  road_area_pier: { 'fill-color': '#323e4d' },
+  road_pier: { 'line-color': '#323e4d' },
+  highway_path: { 'line-color': '#3a4656' },
+  highway_minor: { 'line-color': '#46546a' },
+  highway_major_casing: { 'line-color': '#1a222c' },
+  highway_major_inner: { 'line-color': '#5f6f86' },
+  highway_major_subtle: { 'line-color': '#55647a' },
+  highway_motorway_casing: { 'line-color': '#2b2518' },
+  highway_motorway_inner: { 'line-color': '#8c7b57' },
+  highway_motorway_subtle: { 'line-color': '#6e6146' },
+  railway_transit: { 'line-color': '#3a4350' },
+  railway_minor: { 'line-color': '#3a4350' },
+  railway: { 'line-color': '#3a4350' },
+  water_name: { 'text-color': '#6f8fb6', 'text-halo-color': '#0e1b2c' },
+  highway_name_other: { 'text-color': '#b4bfcd', 'text-halo-color': '#1e2733', 'text-halo-width': 1.5 },
+  highway_name_motorway: { 'text-color': '#d8caa4', 'text-halo-color': '#1e2733', 'text-halo-width': 1.5 }
+};
+
+function nightPalette(layers: StyleSpecification['layers']): void {
+  for (const l of layers) {
+    const paint = (l as { paint?: Record<string, unknown> }).paint ?? ((l as { paint?: Record<string, unknown> }).paint = {});
+    const custom = NIGHT[l.id];
+    if (custom) Object.assign(paint, custom);
+    else if (l.type === 'symbol' && (l as { 'source-layer'?: string })['source-layer'] === 'place') {
+      Object.assign(paint, { 'text-color': '#c5cdd8', 'text-halo-color': '#1e2733', 'text-halo-width': 1.5 });
+    }
+  }
+}
 
 /** Los nombres salen en español cuando el mapa los tiene. */
 function spanishLabels(layers: StyleSpecification['layers']): void {
@@ -141,6 +188,7 @@ export async function buildNavStyle(night: boolean, tiles: NavTiles | null): Pro
   try {
     const st = await fetchJson(`https://tiles.openfreemap.org/styles/${night ? 'dark' : 'liberty'}`, 6000);
     spanishLabels(st.layers);
+    if (night) nightPalette(st.layers);
     st.sources = { ...st.sources, route: EMPTY, traffic: EMPTY };
     if (flowVector) {
       st.sources['flow'] = { type: 'vector', tiles: [flowVector], minzoom: 6, maxzoom: 18, attribution: 'Tráfico © TomTom' };
