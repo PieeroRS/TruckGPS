@@ -23,6 +23,160 @@ const TRAFFIC_COLOR: Record<TrafficSection['nivel'], string> = {
 
 const ll = (p: LatLng): [number, number] => [p[1], p[0]];
 
+export interface NavTiles {
+  /** Mapa base de TomTom en imágenes ({estilo}: main o night). Respaldo si el mapa vectorial no carga. */
+  base: string;
+  /** Tráfico en imágenes (respaldo). */
+  traffic?: string;
+  /** Tráfico en vectores: líneas con traffic_level de 0 (detenido) a 1 (fluido). */
+  flujo?: string;
+}
+
+export interface NavStyle {
+  style: StyleSpecification;
+  /** Dirección de los cuadros de tráfico (para refrescarlos cada 2 minutos). */
+  flow: string | null;
+  vectorial: boolean;
+}
+
+/** Colores del tráfico, de más lento a fluido (los mismos de la leyenda). */
+export const FLOW_COLORS = { detenido: '#7f1d1d', congestion: '#dc2626', lento: '#f59e0b', fluido: '#22c55e' };
+
+const ROUTE_LAYERS = (night: boolean): StyleSpecification['layers'] => {
+  const route = night ? { main: '#22b8f0', casing: '#0b3a5c' } : { main: '#1a73e8', casing: '#0d47a1' };
+  return [
+    {
+      id: 'route-casing',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': route.casing, 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 10, 5, 14, 9, 17, 18, 19, 30] }
+    },
+    {
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': route.main, 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 10, 3, 14, 6, 17, 12, 19, 22] }
+    },
+    {
+      id: 'route-traffic',
+      type: 'line',
+      source: 'traffic',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 10, 3, 14, 6, 17, 12, 19, 22] }
+    }
+  ];
+};
+
+const FLOW_LAYERS: StyleSpecification['layers'] = [
+  {
+    id: 'flow',
+    type: 'line',
+    source: 'flow',
+    'source-layer': 'Traffic flow',
+    filter: ['!', ['to-boolean', ['get', 'road_closure']]],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': [
+        'step',
+        ['to-number', ['get', 'traffic_level'], 1],
+        FLOW_COLORS.detenido,
+        0.25,
+        FLOW_COLORS.congestion,
+        0.5,
+        FLOW_COLORS.lento,
+        0.75,
+        FLOW_COLORS.fluido
+      ],
+      'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 1.2, 14, 2.6, 17, 5, 19, 9],
+      'line-opacity': 0.9
+    }
+  },
+  {
+    id: 'flow-closed',
+    type: 'line',
+    source: 'flow',
+    'source-layer': 'Traffic flow',
+    filter: ['to-boolean', ['get', 'road_closure']],
+    paint: {
+      'line-color': FLOW_COLORS.detenido,
+      'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, 1.5, 17, 6],
+      'line-dasharray': [1, 1]
+    }
+  }
+];
+
+const EMPTY = { type: 'geojson' as const, data: { type: 'FeatureCollection' as const, features: [] } };
+
+/** Los nombres salen en español cuando el mapa los tiene. */
+function spanishLabels(layers: StyleSpecification['layers']): void {
+  for (const l of layers) {
+    if (l.type !== 'symbol' || !l.layout) continue;
+    const tf = (l.layout as Record<string, unknown>)['text-field'];
+    if (tf && JSON.stringify(tf).includes('name')) {
+      (l.layout as Record<string, unknown>)['text-field'] = ['coalesce', ['get', 'name:es'], ['get', 'name:latin'], ['get', 'name']];
+    }
+  }
+}
+
+async function fetchJson(url: string, ms: number): Promise<StyleSpecification> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error(String(r.status));
+    return (await r.json()) as StyleSpecification;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/**
+ * Arma el estilo del mapa de navegación. Primero intenta el mapa vectorial (OpenFreeMap: suave al
+ * girar, nombres siempre derechos); si no carga, usa el mapa en imágenes de TomTom.
+ */
+export async function buildNavStyle(night: boolean, tiles: NavTiles | null): Promise<NavStyle> {
+  const flowVector = tiles?.flujo ? NavMap.flowUrl(tiles.flujo) : null;
+  try {
+    const st = await fetchJson(`https://tiles.openfreemap.org/styles/${night ? 'dark' : 'liberty'}`, 6000);
+    spanishLabels(st.layers);
+    st.sources = { ...st.sources, route: EMPTY, traffic: EMPTY };
+    if (flowVector) {
+      st.sources['flow'] = { type: 'vector', tiles: [flowVector], minzoom: 6, maxzoom: 18, attribution: 'Tráfico © TomTom' };
+    }
+    // Tráfico y ruta encima de las calles, pero debajo de los nombres (como en los GPS).
+    let i = -1;
+    st.layers.forEach((l, k) => {
+      if ((l as { 'source-layer'?: string })['source-layer'] === 'transportation' && l.type === 'line') i = k;
+    });
+    const at = i >= 0 ? i + 1 : st.layers.findIndex((l) => l.type === 'symbol');
+    const extra = [...(flowVector ? FLOW_LAYERS : []), ...ROUTE_LAYERS(night)];
+    st.layers.splice(at >= 0 ? at : st.layers.length, 0, ...extra);
+    return { style: st, flow: tiles?.flujo ?? null, vectorial: true };
+  } catch {
+    // Respaldo: mapa en imágenes.
+  }
+  const baseTiles = tiles ? [tiles.base.replace('{estilo}', night ? 'night' : 'main')] : ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
+  const style: StyleSpecification = {
+    version: 8,
+    sources: {
+      base: { type: 'raster', tiles: baseTiles, tileSize: 256, maxzoom: 18, attribution: tiles ? '© TomTom' : '© OpenStreetMap' },
+      ...(tiles?.traffic
+        ? { flow: { type: 'raster' as const, tiles: [NavMap.flowUrl(tiles.traffic)], tileSize: 256, minzoom: 6, maxzoom: 18, attribution: 'Tráfico © TomTom' } }
+        : {}),
+      route: EMPTY,
+      traffic: EMPTY
+    },
+    layers: [
+      { id: 'base', type: 'raster', source: 'base', paint: night ? {} : { 'raster-saturation': -0.15 } },
+      ...(tiles?.traffic ? [{ id: 'flow', type: 'raster' as const, source: 'flow', paint: { 'raster-opacity': night ? 0.85 : 0.75, 'raster-fade-duration': 0 } }] : []),
+      ...ROUTE_LAYERS(night)
+    ]
+  };
+  return { style, flow: tiles?.traffic ?? null, vectorial: false };
+}
+
 /**
  * Mapa de la navegación: gira con el rumbo del vehículo, se inclina hacia adelante y deja
  * el vehículo en la parte baja de la pantalla, para ver lo que viene (como un GPS de auto).
@@ -38,69 +192,8 @@ export class NavMap {
   private following = true;
   private onUserMove: (() => void) | null = null;
 
-  constructor(
-    el: HTMLElement,
-    center: LatLng,
-    tiles: { base: string; traffic?: string } | null,
-    private readonly night: boolean
-  ) {
-    const baseTiles = tiles
-      ? [tiles.base.replace('{estilo}', night ? 'night' : 'main')]
-      : ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
-    const route = night ? { main: '#22b8f0', casing: '#0b3a5c' } : { main: '#1a73e8', casing: '#0d47a1' };
-    const style: StyleSpecification = {
-      version: 8,
-      sources: {
-        base: {
-          type: 'raster',
-          tiles: baseTiles,
-          tileSize: 256,
-          maxzoom: 18,
-          attribution: tiles ? '© TomTom' : '© OpenStreetMap'
-        },
-        ...(tiles?.traffic
-          ? {
-              flow: {
-                type: 'raster' as const,
-                tiles: [NavMap.flowUrl(tiles.traffic)],
-                tileSize: 256,
-                minzoom: 6,
-                maxzoom: 18,
-                attribution: 'Tráfico © TomTom'
-              }
-            }
-          : {}),
-        route: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-        traffic: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
-      },
-      layers: [
-        { id: 'base', type: 'raster', source: 'base', paint: night ? {} : { 'raster-saturation': -0.15 } },
-        ...(tiles?.traffic
-          ? [{ id: 'flow', type: 'raster' as const, source: 'flow', paint: { 'raster-opacity': night ? 0.85 : 0.75, 'raster-fade-duration': 0 } }]
-          : []),
-        {
-          id: 'route-casing',
-          type: 'line',
-          source: 'route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': route.casing, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 17, 16, 19, 26] }
-        },
-        {
-          id: 'route-line',
-          type: 'line',
-          source: 'route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': route.main, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 17, 11, 19, 19] }
-        },
-        {
-          id: 'route-traffic',
-          type: 'line',
-          source: 'traffic',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 17, 11, 19, 19] }
-        }
-      ]
-    };
+  constructor(el: HTMLElement, center: LatLng, built: NavStyle) {
+    const style = built.style;
     this.map = new maplibregl.Map({
       container: el,
       style,
@@ -110,9 +203,12 @@ export class NavMap {
       attributionControl: { compact: true },
       dragRotate: true,
       pitchWithRotate: true,
-      maxPitch: 65
+      maxPitch: 65,
+      fadeDuration: 150,
+      // Más cuadros en memoria: al girar y volver no se recargan.
+      maxTileCacheZoomLevels: 6
     });
-    this.trafficBase = tiles?.traffic ?? null;
+    this.trafficBase = built.flow;
     if (this.trafficBase) {
       this.flowTimer = setInterval(() => {
         const src = this.map.getSource('flow') as { setTiles?: (t: string[]) => void } | undefined;
@@ -145,7 +241,9 @@ export class NavMap {
   /** Muestra u oculta el tráfico en vivo de las calles. */
   setTrafficVisible(on: boolean): void {
     this.whenLoaded(() => {
-      if (this.map.getLayer('flow')) this.map.setLayoutProperty('flow', 'visibility', on ? 'visible' : 'none');
+      for (const id of ['flow', 'flow-closed']) {
+        if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+      }
     });
   }
 
@@ -225,7 +323,7 @@ export class NavMap {
       this.meEl = document.createElement('div');
       this.meEl.className = 'nav-puck';
       this.meEl.innerHTML = '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><path d="M20 4 33 34 20 27 7 34Z"/></svg>';
-      this.me = new maplibregl.Marker({ element: this.meEl, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(ll(p)).addTo(this.map);
+      this.me = new maplibregl.Marker({ element: this.meEl, rotationAlignment: 'map', pitchAlignment: 'viewport' }).setLngLat(ll(p)).addTo(this.map);
     } else {
       this.me.setLngLat(ll(p));
     }

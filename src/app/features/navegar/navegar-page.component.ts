@@ -35,7 +35,7 @@ import { OfflineQueueService, isNetworkError } from '../../core/services/offline
 import { RoutingService } from '../../core/services/routing.service';
 import { VoiceService } from '../../core/services/voice.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
-import { NavMap, TrafficSection, isNight } from './nav-map';
+import { FLOW_COLORS, NavMap, TrafficSection, buildNavStyle, isNight } from './nav-map';
 import { LatLng, cumulative, lowerFirst, pointAt, projectOnPath, spokenDistance } from '../../core/utils/nav.util';
 
 type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
@@ -92,6 +92,14 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
             <lucide-icon [img]="warnIcon" [size]="22" />
           </button>
         </div>
+        @if (hasTraffic() && liveTraffic.enabled()) {
+          <div class="nav-legend" [style.bottom]="following() ? 'calc(100px + env(safe-area-inset-bottom, 0px))' : 'calc(152px + env(safe-area-inset-bottom, 0px))'" aria-label="Colores del tráfico">
+            <span><i [style.background]="flowColors.fluido"></i>Fluido</span>
+            <span><i [style.background]="flowColors.lento"></i>Lento</span>
+            <span><i [style.background]="flowColors.congestion"></i>Congestión</span>
+            <span><i [style.background]="flowColors.detenido"></i>Detenido</span>
+          </div>
+        }
         @if (!following()) {
           <button type="button" class="absolute left-3 z-[600] px-4 py-2.5 rounded-full bg-white shadow-lg text-[13px] font-semibold text-blue-700 flex items-center gap-1.5" style="bottom: calc(96px + env(safe-area-inset-bottom, 0px))" (click)="recenter()">
             <lucide-icon [img]="locateIcon" [size]="16" /> Centrar
@@ -196,6 +204,13 @@ type Phase = 'inicio' | 'gps' | 'ruta' | 'guiando' | 'llegada' | 'error';
       .nav-fab.is-off { color: #fca5a5; }
       .nav-fab.is-warn { color: #fbbf24; }
       .nav-fab.is-traffic { background: #14532d; }
+      .nav-legend {
+        position: absolute; left: 12px; z-index: 600; display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: calc(100% - 90px);
+        padding: 7px 11px; border-radius: 12px; background: rgba(17, 20, 24, .88); color: #e5e7eb; font-size: 11.5px; font-weight: 600;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+      }
+      .nav-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+      .nav-legend i { width: 14px; height: 5px; border-radius: 3px; display: inline-block; }
       .nav-bottom {
         position: absolute; left: 0; right: 0; bottom: 0; z-index: 600; display: flex; align-items: center; gap: 12px;
         padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)); background: #111418; color: #fff;
@@ -276,6 +291,7 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
   /** De noche el mapa y la pantalla se oscurecen. */
   readonly night = signal(isNight());
   readonly hasTraffic = signal(false);
+  readonly flowColors = FLOW_COLORS;
 
   private readonly total = signal(0);
 
@@ -352,7 +368,9 @@ export class NavegarPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const c: LatLng = this.dest ? [this.dest.lat, this.dest.lng] : [-12.0464, -77.0428];
     const tiles = await this.liveTraffic.tiles();
     if (!this.mapEl) return;
-    this.nav = new NavMap(this.mapEl.nativeElement, c, tiles, this.night());
+    const built = await buildNavStyle(this.night(), tiles);
+    if (!this.mapEl) return;
+    this.nav = new NavMap(this.mapEl.nativeElement, c, built);
     this.hasTraffic.set(this.nav.hasTraffic());
     this.nav.setTrafficVisible(this.liveTraffic.enabled());
     this.nav.onManualMove(() => this.following.set(false));

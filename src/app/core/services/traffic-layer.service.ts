@@ -8,6 +8,8 @@ interface CapaTrafico {
   url?: string;
   /** Mapa base de TomTom: {estilo} es main (día) o night (noche). */
   base?: string;
+  /** Tráfico en vectores para el mapa de navegación. */
+  flujo?: string;
   expira?: number;
 }
 
@@ -47,10 +49,10 @@ export class TrafficLayerService {
   }
 
   /** Direcciones del mapa base y del tráfico (null si TomTom no está configurado). */
-  async tiles(): Promise<{ base: string; traffic: string } | null> {
+  async tiles(): Promise<{ base: string; traffic: string; flujo?: string } | null> {
     const c = await this.info();
     if (!c.disponible || !c.url || !c.base) return null;
-    return { base: `${this.api.baseUrl}${c.base}`, traffic: `${this.api.baseUrl}${c.url}` };
+    return { base: `${this.api.baseUrl}${c.base}`, traffic: `${this.api.baseUrl}${c.url}`, flujo: c.flujo ? `${this.api.baseUrl}${c.flujo}` : undefined };
   }
 
   private async info(): Promise<CapaTrafico> {
