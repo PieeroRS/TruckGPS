@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   LucideAngularModule,
   Truck, MapPin, ShieldCheck, Activity,
@@ -13,7 +13,7 @@ import { SettingsService } from '../core/services/settings.service';
 @Component({
   standalone: true,
   selector: 'app-login-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
   template: `
     <div class="min-h-dvh grid lg:grid-cols-[1.1fr_1fr] bg-white">
 
@@ -116,7 +116,10 @@ import { SettingsService } from '../core/services/settings.service';
             </div>
 
             <div>
-              <label class="block text-[13px] font-medium text-slate-700 mb-1.5">Contraseña</label>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-[13px] font-medium text-slate-700">Contraseña</label>
+                <a routerLink="/recuperar" [queryParams]="username.includes('@') ? { email: username.trim() } : {}" class="text-[12.5px] font-semibold text-blue-600 hover:underline">¿Olvidaste tu contraseña?</a>
+              </div>
               <div class="relative">
                 <input
                   class="w-full h-11 pl-3.5 pr-11 rounded-lg text-sm text-slate-900
@@ -141,11 +144,24 @@ import { SettingsService } from '../core/services/settings.service';
               </div>
             </div>
 
-            @if (error) {
-              <div class="flex items-start gap-2.5 p-3 rounded-lg
-                          bg-red-50 border border-red-200 text-red-700">
+            @if (aviso) {
+              <div class="flex items-start gap-2.5 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800">
                 <lucide-icon [img]="alertIcon" [size]="15" class="mt-0.5 shrink-0" />
-                <p class="text-[13px] leading-snug">{{ error }}</p>
+                <p class="text-[13px] leading-snug">{{ aviso }}</p>
+              </div>
+            }
+
+            @if (error) {
+              <div class="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
+                <div class="flex items-start gap-2.5">
+                  <lucide-icon [img]="alertIcon" [size]="15" class="mt-0.5 shrink-0" />
+                  <p class="text-[13px] leading-snug">{{ error }}</p>
+                </div>
+                @if (noVerificado) {
+                  <button type="button" class="mt-2 ml-6 text-[12.5px] font-semibold text-red-700 underline disabled:opacity-50" [disabled]="reenviando" (click)="reenviar()">
+                    {{ reenviando ? 'Enviando...' : 'Reenviar el correo de verificación' }}
+                  </button>
+                }
               </div>
             }
 
@@ -168,6 +184,10 @@ import { SettingsService } from '../core/services/settings.service';
               }
             </button>
           </form>
+
+          <p class="mt-6 text-center text-[13px] text-slate-500">
+            ¿No tienes cuenta? <a routerLink="/registro" class="font-semibold text-blue-600 hover:underline">Crear cuenta</a>
+          </p>
 
           <p class="mt-8 text-center text-[12px] text-slate-400">
             © {{ year }} TruckGPS · Lima, Perú
@@ -209,9 +229,15 @@ export class LoginPageComponent implements OnInit {
   error = '';
   submitting = false;
   showPassword = false;
+  aviso = '';
+  noVerificado = false;
+  reenviando = false;
   private redirectTo = '/';
 
   ngOnInit(): void {
+    const q = this.route.snapshot.queryParamMap;
+    if (q.get('email')) this.username = q.get('email') ?? '';
+    if (q.get('motivo') === 'inactividad') this.aviso = 'Cerramos tu sesión por inactividad, como pediste en tus preferencias de seguridad.';
     const redirect = this.route.snapshot.queryParamMap.get('redirect');
     if (redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.startsWith('/login')) {
       this.redirectTo = redirect;
@@ -220,11 +246,19 @@ export class LoginPageComponent implements OnInit {
 
   async submit(): Promise<void> {
     this.error = '';
+    this.aviso = '';
+    this.noVerificado = false;
     this.submitting = true;
     const result = await this.auth.login(this.username.trim(), this.password);
     if (!result.ok) {
       this.submitting = false;
       this.error = result.error ?? 'Credenciales inválidas.';
+      this.noVerificado = !!result.noVerificado;
+      return;
+    }
+    if (this.auth.profile()?.onboarding_ok === false) {
+      await this.router.navigateByUrl('/bienvenida');
+      this.submitting = false;
       return;
     }
     // Pantalla de inicio configurada para el rol (ir a "/" desde /login no navega: redirige a /login).
@@ -236,5 +270,14 @@ export class LoginPageComponent implements OnInit {
     const ok = await this.router.navigateByUrl(target);
     this.submitting = false;
     if (!ok) await this.router.navigateByUrl('/dashboard');
+  }
+
+  async reenviar(): Promise<void> {
+    this.reenviando = true;
+    const r = await this.auth.resendVerification(this.username.trim());
+    this.reenviando = false;
+    this.noVerificado = false;
+    this.error = '';
+    this.aviso = r.ok ? (r.mensaje ?? 'Te enviamos un nuevo correo.') : (r.error ?? '');
   }
 }

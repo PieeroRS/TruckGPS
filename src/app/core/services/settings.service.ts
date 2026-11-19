@@ -50,6 +50,34 @@ export interface FlotaResponse {
   actualizado: string | null;
 }
 
+export interface Deteccion {
+  sensibilidad: 'baja' | 'media' | 'alta' | 'personalizada';
+  umbral_sabotaje: number;
+  peso_desvio: number;
+  peso_spoofing: number;
+  peso_jamming: number;
+  peso_parada_riesgo: number;
+  peso_salida_zona: number;
+  spoofing_salto_m: number;
+  spoofing_kmh: number;
+}
+export type DeteccionNum = Exclude<keyof Deteccion, 'sensibilidad'>;
+
+export interface DeteccionResponse {
+  valores: Deteccion;
+  porDefecto: Deteccion;
+  rangos: Record<DeteccionNum, { min: number; max: number }>;
+  presets: Record<'baja' | 'media' | 'alta', { umbrales: Partial<Umbrales>; deteccion: Partial<Deteccion> }>;
+  umbrales: Umbrales;
+  actualizadoPor: string | null;
+  actualizado: string | null;
+}
+
+export interface Registro {
+  codigo: string;
+  activo: boolean;
+}
+
 const INTERFAZ_KEY = 'truckgps_interfaz';
 
 function readCachedInterfaz(): InterfazResponse | null {
@@ -134,6 +162,30 @@ export class SettingsService {
 
   resetUmbrales(): Promise<UmbralesResponse> {
     return this.api.post<UmbralesResponse>('/settings/umbrales/restablecer');
+  }
+
+  getDeteccion(): Promise<DeteccionResponse> {
+    return this.api.get<DeteccionResponse>('/settings/deteccion');
+  }
+
+  saveDeteccion(valores: Partial<Deteccion>): Promise<DeteccionResponse> {
+    return this.api.put<DeteccionResponse>('/settings/deteccion', { valores });
+  }
+
+  setSensibilidad(nivel: 'baja' | 'media' | 'alta'): Promise<DeteccionResponse> {
+    return this.api.post<DeteccionResponse>('/settings/deteccion/sensibilidad', { nivel });
+  }
+
+  resetDeteccion(): Promise<DeteccionResponse> {
+    return this.api.post<DeteccionResponse>('/settings/deteccion/restablecer');
+  }
+
+  getRegistro(): Promise<Registro> {
+    return this.api.get<Registro>('/settings/registro');
+  }
+
+  saveRegistro(cambios: { activo?: boolean; regenerar?: boolean }): Promise<Registro> {
+    return this.api.put<Registro>('/settings/registro', cambios);
   }
 
   getFlota(): Promise<FlotaResponse> {

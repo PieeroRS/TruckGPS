@@ -28,3 +28,10 @@ export const guestGuard = async () => {
   }
   return true;
 };
+
+/** Cuenta nueva: antes de entrar al panel pasa por el asistente de configuración (CP002). */
+export const onboardingGuard = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.profile()?.onboarding_ok === false ? router.createUrlTree(['/bienvenida']) : true;
+};

@@ -14,7 +14,30 @@ export type UserProfile = {
   role: 'admin' | 'supervisor' | 'conductor';
   telefono?: string | null;
   licencia?: string | null;
+  email_verificado?: boolean;
+  onboarding_ok?: boolean;
+  preferencias?: Preferencias;
 };
+
+export type Preferencias = {
+  seguridad: { cerrar_por_inactividad_min: number; confirmar_acciones: boolean };
+  notificaciones: {
+    en_app: boolean;
+    sonido: boolean;
+    correo: boolean;
+    alta_severidad: boolean;
+    desvios: boolean;
+    velocidad: boolean;
+    incidencias: boolean;
+  };
+};
+
+export const PREFERENCIAS_DEFAULT: Preferencias = {
+  seguridad: { cerrar_por_inactividad_min: 0, confirmar_acciones: true },
+  notificaciones: { en_app: true, sonido: true, correo: false, alta_severidad: true, desvios: true, velocidad: true, incidencias: true }
+};
+
+export type Resultado = { ok: boolean; error?: string; mensaje?: string; noVerificado?: boolean };
 
 const PROFILE_KEY = 'truckgps_profile';
 
@@ -146,16 +169,99 @@ export class AuthService {
     return true;
   }
 
-  async login(identifier: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  /** Preferencias del usuario actual (con valores por defecto si aún no las guardó). */
+  prefs(): Preferencias {
+    return this.profile()?.preferencias ?? PREFERENCIAS_DEFAULT;
+  }
+
+  private startSession(data: LoginResponse): void {
+    localStorage.setItem(TOKEN_KEY, data.access_token);
+    this.validatedAt = Date.now();
+    this.profile.set(data.profile);
+    this.isLoggedIn.set(true);
+  }
+
+  // ─────────── cuentas: registro, verificación y recuperación ───────────
+
+  async register(body: { full_name: string; email: string; password: string; password2: string; codigo_empresa: string }): Promise<Resultado & { correoEnviado?: boolean }> {
+    try {
+      const r = await this.api.post<{ mensaje: string; correoEnviado: boolean }>('/auth/registro', body);
+      return { ok: true, mensaje: r.mensaje, correoEnviado: r.correoEnviado };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo crear la cuenta') };
+    }
+  }
+
+  async verifyEmail(token: string): Promise<Resultado> {
+    try {
+      this.startSession(await this.api.post<LoginResponse>('/auth/verificar', { token }));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo verificar el correo') };
+    }
+  }
+
+  async resendVerification(email: string): Promise<Resultado> {
+    try {
+      const r = await this.api.post<{ mensaje: string }>('/auth/reenviar-verificacion', { email });
+      return { ok: true, mensaje: r.mensaje };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo reenviar el correo') };
+    }
+  }
+
+  async requestReset(email: string): Promise<Resultado> {
+    try {
+      const r = await this.api.post<{ mensaje: string }>('/auth/recuperar', { email });
+      return { ok: true, mensaje: r.mensaje };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo enviar el enlace') };
+    }
+  }
+
+  async checkResetToken(token: string): Promise<Resultado & { email?: string }> {
+    try {
+      const r = await this.api.get<{ email: string }>(`/auth/restablecer/validar?token=${encodeURIComponent(token)}`);
+      return { ok: true, email: r.email };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'El enlace no es válido') };
+    }
+  }
+
+  async resetPassword(token: string, password: string, password2: string): Promise<Resultado> {
+    try {
+      const r = await this.api.post<{ mensaje: string }>('/auth/restablecer', { token, password, password2 });
+      return { ok: true, mensaje: r.mensaje };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo cambiar la contraseña') };
+    }
+  }
+
+  async savePreferences(preferencias: Preferencias, completarAsistente = false): Promise<Resultado> {
+    try {
+      this.profile.set(await this.api.put<UserProfile>('/auth/me/preferencias', { preferencias, onboarding_ok: completarAsistente }));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudieron guardar las preferencias') };
+    }
+  }
+
+  async changePassword(actual: string, nueva: string, nueva2: string): Promise<Resultado> {
+    try {
+      const r = await this.api.post<{ mensaje: string }>('/auth/me/password', { actual, nueva, nueva2 });
+      return { ok: true, mensaje: r.mensaje };
+    } catch (e) {
+      return { ok: false, error: apiErrorMessage(e, 'No se pudo cambiar la contraseña') };
+    }
+  }
+
+  async login(identifier: string, password: string): Promise<Resultado> {
     try {
       const data = await this.api.post<LoginResponse>('/auth/login', {
         email: identifier,
         password
       });
-      localStorage.setItem(TOKEN_KEY, data.access_token);
-      this.validatedAt = Date.now();
-      this.profile.set(data.profile);
-      this.isLoggedIn.set(true);
+      this.startSession(data);
       try {
         const { LocationTrackingService } = await import('../core/services/location-tracking.service');
         // Sin await: si el navegador pide permiso de ubicación, el inicio de sesión no debe quedarse esperando.
@@ -165,11 +271,12 @@ export class AuthService {
       }
       return { ok: true };
     } catch (e) {
-      return { ok: false, error: apiErrorMessage(e, 'Credenciales inválidas') };
+      const noVerificado = e instanceof HttpErrorResponse && e.status === 403 && /verificad/i.test(apiErrorMessage(e, ''));
+      return { ok: false, error: apiErrorMessage(e, 'Credenciales inválidas'), noVerificado };
     }
   }
 
-  async logout(): Promise<void> {
+  async logout(motivo?: string): Promise<void> {
     try {
       const { LocationTrackingService } = await import('../core/services/location-tracking.service');
       await this.injector.get(LocationTrackingService).stop(true);
@@ -177,7 +284,7 @@ export class AuthService {
       /* ignore */
     }
     this.clearSession();
-    await this.router.navigateByUrl('/login');
+    await this.router.navigate(['/login'], motivo ? { queryParams: { motivo } } : {});
   }
 
   async logoutConfirm(): Promise<void> {

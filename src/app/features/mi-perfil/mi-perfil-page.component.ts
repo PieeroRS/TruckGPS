@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { PreferenciasFormComponent } from '../bienvenida/preferencias-form.component';
 import {
   AlertCircle,
   BadgeCheck,
@@ -14,11 +15,12 @@ import {
   Monitor,
   Pencil,
   Save,
+  Settings,
   Shield,
   Truck,
   User
 } from 'lucide-angular';
-import { AuthService } from '../../auth/auth.service';
+import { AuthService, Preferencias } from '../../auth/auth.service';
 import { ApiService } from '../../core/api/api.service';
 import { Vehicle } from '../../core/models/vehicle.model';
 import { LayoutService } from '../../core/services/layout.service';
@@ -28,7 +30,7 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
 @Component({
   standalone: true,
   selector: 'app-mi-perfil-page',
-  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink],
+  imports: [CommonModule, FormsModule, LucideAngularModule, RouterLink, PreferenciasFormComponent],
   template: `
     <div class="p-4 sm:p-6 lg:p-8 flex justify-center">
       <div class="w-full max-w-lg space-y-4">
@@ -253,6 +255,52 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
           }
         </div>
 
+        <!-- ═══════════ PREFERENCIAS (CP002) ═══════════ -->
+        <div class="card p-5 anim-in transition-shadow duration-300 hover:shadow-md" style="animation-delay: 160ms">
+          <div class="flex items-start justify-between gap-3 mb-1">
+            <div class="flex items-center gap-2.5 group">
+              <div class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <lucide-icon [img]="settingsIcon" [size]="16" />
+              </div>
+              <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Seguridad y notificaciones</h3>
+            </div>
+            <a routerLink="/bienvenida" class="edit-btn">Abrir asistente</a>
+          </div>
+          <p class="text-[12.5px] text-slate-500 mb-4 ml-[42px]">Cómo se protege tu sesión y qué alertas te avisan.</p>
+
+          <div class="flex gap-1 p-1 rounded-lg bg-slate-100 w-fit mb-3">
+            <button type="button" class="seg-btn" [class.is-on]="prefTab() === 'seguridad'" (click)="prefTab.set('seguridad')">Seguridad</button>
+            <button type="button" class="seg-btn" [class.is-on]="prefTab() === 'notificaciones'" (click)="prefTab.set('notificaciones')">Notificaciones</button>
+            <button type="button" class="seg-btn" [class.is-on]="prefTab() === 'password'" (click)="prefTab.set('password')">Contraseña</button>
+          </div>
+
+          @if (prefTab() === 'password') {
+            <div class="space-y-3">
+              <div><label class="input-label" for="mp-pa">Contraseña actual</label><input id="mp-pa" type="password" class="input" [(ngModel)]="passActual" name="pa" autocomplete="current-password" /></div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="input-label" for="mp-pn">Nueva contraseña</label><input id="mp-pn" type="password" class="input" [(ngModel)]="passNueva" name="pn" autocomplete="new-password" /></div>
+                <div><label class="input-label" for="mp-pr">Repite la nueva</label><input id="mp-pr" type="password" class="input" [(ngModel)]="passNueva2" name="pr" autocomplete="new-password" /></div>
+              </div>
+              <p class="text-[11.5px] text-slate-500">Mínimo 8 caracteres, con letras y números.</p>
+              <button type="button" class="w-full py-2.5 rounded-lg bg-[#0b1220] hover:bg-[#16233b] text-white text-[13px] font-semibold disabled:opacity-40" [disabled]="savingPrefs() || !passActual || !passNueva" (click)="cambiarPassword()">
+                {{ savingPrefs() ? 'Guardando...' : 'Cambiar contraseña' }}
+              </button>
+            </div>
+          } @else {
+            <app-preferencias-form [prefs]="prefsForm" [seccion]="prefTab() === 'seguridad' ? 'seguridad' : 'notificaciones'" [staff]="auth.isStaff()" />
+            <button type="button" class="mt-4 w-full py-2.5 rounded-lg bg-[#0b1220] hover:bg-[#16233b] text-white text-[13px] font-semibold flex items-center justify-center gap-2 disabled:opacity-40" [disabled]="savingPrefs() || !prefsDirty()" (click)="guardarPrefs()">
+              <lucide-icon [img]="saveIcon" [size]="15" />{{ savingPrefs() ? 'Guardando...' : 'Guardar preferencias' }}
+            </button>
+          }
+
+          @if (prefsMsg(); as m) {
+            <div class="flex items-start gap-2 p-3 mt-4 rounded-lg ring-1 msg-in" [class]="m.ok ? 'bg-emerald-50 ring-emerald-200 text-emerald-700' : 'bg-red-50 ring-red-200 text-red-700'">
+              <lucide-icon [img]="m.ok ? checkIcon : alertIcon" [size]="14" class="mt-0.5 shrink-0" />
+              <p class="text-[12.5px] leading-snug">{{ m.text }}</p>
+            </div>
+          }
+        </div>
+
         <!-- ═══════════ ESTADO DE CUENTA ═══════════ -->
         <div class="card p-5 anim-in transition-shadow duration-300 hover:shadow-md" style="animation-delay: 180ms">
           <div class="flex items-center gap-2.5 mb-4 group">
@@ -340,6 +388,8 @@ import { apiErrorMessage } from '../../core/utils/api-error.util';
         font-size: 12px; font-weight: 600; color: #1d4ed8; background: #eff6ff; box-shadow: 0 0 0 1px #dbeafe inset; transition: all .15s;
       }
       .edit-btn:hover { background: #dbeafe; }
+      .seg-btn { padding: 6px 12px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: #475569; }
+      .seg-btn.is-on { background: #fff; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,.08); }
     `
   ]
 })
@@ -361,6 +411,15 @@ export class MiPerfilPageComponent implements OnInit {
   readonly lockIcon = Lock;
   readonly pencilIcon = Pencil;
   readonly truckIcon = Truck;
+  readonly settingsIcon = Settings;
+
+  readonly prefTab = signal<'seguridad' | 'notificaciones' | 'password'>('seguridad');
+  readonly savingPrefs = signal(false);
+  readonly prefsMsg = signal<{ ok: boolean; text: string } | null>(null);
+  prefsForm!: Preferencias;
+  passActual = '';
+  passNueva = '';
+  passNueva2 = '';
 
   private readonly api = inject(ApiService);
   private readonly settings = inject(SettingsService);
@@ -385,7 +444,39 @@ export class MiPerfilPageComponent implements OnInit {
   ngOnInit(): void {
     this.layout.setPage('Mi perfil', 'Datos de tu cuenta y de tu flota');
     this.resetForm();
+    this.prefsForm = JSON.parse(JSON.stringify(this.auth.prefs()));
     void this.loadFlota();
+  }
+
+  prefsDirty(): boolean {
+    return JSON.stringify(this.prefsForm) !== JSON.stringify(this.auth.prefs());
+  }
+
+  private flashPrefs(ok: boolean, text: string): void {
+    this.prefsMsg.set({ ok, text });
+    setTimeout(() => {
+      if (this.prefsMsg()?.text === text) this.prefsMsg.set(null);
+    }, 4500);
+  }
+
+  async guardarPrefs(): Promise<void> {
+    this.savingPrefs.set(true);
+    const r = await this.auth.savePreferences(this.prefsForm);
+    this.savingPrefs.set(false);
+    if (r.ok) this.prefsForm = JSON.parse(JSON.stringify(this.auth.prefs()));
+    this.flashPrefs(r.ok, r.ok ? 'Preferencias guardadas. Ya se aplican en este equipo.' : (r.error ?? 'No se pudo guardar'));
+  }
+
+  async cambiarPassword(): Promise<void> {
+    if (this.passNueva !== this.passNueva2) {
+      this.flashPrefs(false, 'Las contraseñas nuevas no coinciden.');
+      return;
+    }
+    this.savingPrefs.set(true);
+    const r = await this.auth.changePassword(this.passActual, this.passNueva, this.passNueva2);
+    this.savingPrefs.set(false);
+    if (r.ok) this.passActual = this.passNueva = this.passNueva2 = '';
+    this.flashPrefs(r.ok, r.ok ? 'Contraseña actualizada.' : (r.error ?? 'No se pudo cambiar'));
   }
 
   private resetForm(): void {

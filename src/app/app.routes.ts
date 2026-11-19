@@ -1,4 +1,4 @@
-import { authGuard, guestGuard } from './auth/auth.guard';
+import { authGuard, guestGuard, onboardingGuard } from './auth/auth.guard';
 import { homeGuard, moduleGuard } from './auth/module.guard';
 import { supervisorGuard } from './auth/supervisor.guard';
 import { Routes } from '@angular/router';
@@ -12,8 +12,31 @@ export const routes: Routes = [
       import('./auth/login-page.component').then((m) => m.LoginPageComponent)
   },
   {
-    path: '',
+    path: 'registro',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./auth/cuenta-pages.component').then((m) => m.RegistroPageComponent)
+  },
+  {
+    path: 'verificar',
+    loadComponent: () => import('./auth/cuenta-pages.component').then((m) => m.VerificarPageComponent)
+  },
+  {
+    path: 'recuperar',
+    loadComponent: () => import('./auth/cuenta-pages.component').then((m) => m.RecuperarPageComponent)
+  },
+  {
+    path: 'restablecer',
+    loadComponent: () => import('./auth/cuenta-pages.component').then((m) => m.RestablecerPageComponent)
+  },
+  {
+    path: 'bienvenida',
     canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/bienvenida/bienvenida-page.component').then((m) => m.BienvenidaPageComponent)
+  },
+  {
+    path: '',
+    canActivate: [authGuard, onboardingGuard],
     canActivateChild: [authGuard],
     loadComponent: () =>
       import('./core/layout/main-layout.component').then((m) => m.MainLayoutComponent),

@@ -33,6 +33,7 @@ import { OfflineQueueService } from '../services/offline-queue.service';
 import { LayoutService } from '../services/layout.service';
 import { ZoneProximityService } from '../services/zone-proximity.service';
 import { AlertWatcherService } from '../services/alert-watcher.service';
+import { InactividadService } from '../services/inactividad.service';
 import { LocationTrackingService } from '../services/location-tracking.service';
 import { SettingsService } from '../services/settings.service';
 
@@ -370,6 +371,7 @@ export class MainLayoutComponent {
   readonly auth = inject(AuthService);
   readonly proximity = inject(ZoneProximityService);
   readonly watcher = inject(AlertWatcherService);
+  private readonly inactividad = inject(InactividadService);
   readonly tracking = inject(LocationTrackingService);
   readonly queue = inject(OfflineQueueService);
   readonly wifiOffIcon = WifiOff;
@@ -442,6 +444,7 @@ export class MainLayoutComponent {
 
   constructor() {
     this.watcher.start();
+    this.inactividad.start();
     void this.settings.loadInterfaz();
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
       // Cambió de pantalla (no solo de parámetros): se repite la entrada suave del contenido.

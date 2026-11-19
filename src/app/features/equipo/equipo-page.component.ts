@@ -1,6 +1,6 @@
 import { RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   AlertCircle,
@@ -25,6 +25,8 @@ import {
   ProfilesService
 } from '../../core/services/profiles.service';
 import { LayoutService } from '../../core/services/layout.service';
+import { Registro, SettingsService } from '../../core/services/settings.service';
+import { ConfirmService } from '../../core/services/confirm.service';
 
 @Component({
   standalone: true,
@@ -110,6 +112,29 @@ import { LayoutService } from '../../core/services/layout.service';
         }
       </div>
 
+      <!-- ═══════════ CREAR CUENTA: CÓDIGO DE EMPRESA (CP001) ═══════════ -->
+      @if (auth.isStaff() && registro(); as reg) {
+        <div class="card p-5 mb-5 anim-in" style="animation-delay: 140ms">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="min-w-0">
+              <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Cuentas creadas por el propio usuario</h3>
+              <p class="text-[12.5px] text-slate-500 mt-1 max-w-xl">Comparte este código con tu personal: lo piden en «Crear cuenta». Las cuentas nuevas entran como conductor y deben verificar su correo.</p>
+            </div>
+            <label class="inline-flex items-center gap-2 text-[12.5px] font-semibold text-slate-700 cursor-pointer">
+              <input type="checkbox" class="accent-blue-600 w-4 h-4" [checked]="reg.activo" (change)="toggleRegistro()" />Permitir crear cuentas
+            </label>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-4">
+            <span class="px-3.5 py-2 rounded-lg bg-slate-900 text-white font-mono text-[15px] tracking-[0.15em]" [class.opacity-40]="!reg.activo">{{ reg.codigo }}</span>
+            <button type="button" class="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50" (click)="copiarCodigo(reg.codigo)">{{ copiado() ? 'Copiado' : 'Copiar' }}</button>
+            <button type="button" class="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50" (click)="regenerarCodigo()">Generar otro código</button>
+          </div>
+          @if (pendientes().length) {
+            <p class="text-[12px] text-amber-700 mt-3">{{ pendientes().length }} {{ pendientes().length === 1 ? 'cuenta espera' : 'cuentas esperan' }} verificar su correo. Si el correo no les llegó, actívalas con «Activar» en la lista.</p>
+          }
+        </div>
+      }
+
       <!-- ═══════════ FILTROS ═══════════ -->
       <div class="card p-4 mb-5 anim-in" style="animation-delay: 170ms">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
@@ -193,6 +218,11 @@ import { LayoutService } from '../../core/services/layout.service';
                         </div>
                         <div class="min-w-0">
                           <div class="font-semibold text-slate-900 tracking-tight truncate">{{ p.full_name }}</div>
+                          @if (p.email_verificado === false) {
+                            <div class="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 uppercase tracking-wider mt-0.5">
+                              <span class="w-1 h-1 rounded-full bg-amber-500"></span>Correo sin verificar
+                            </div>
+                          }
                           @if (p.id === auth.profile()?.id) {
                             <div class="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 uppercase tracking-wider mt-0.5">
                               <span class="w-1 h-1 rounded-full bg-blue-500"></span>Tú
@@ -217,6 +247,11 @@ import { LayoutService } from '../../core/services/layout.service';
 
                     <td class="px-4 py-3.5 text-right">
                       @if (auth.isStaff()) {
+                        @if (p.email_verificado === false) {
+                          <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 mr-1.5 rounded-lg text-[11.5px] font-semibold text-emerald-700 ring-1 ring-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition active:scale-95" (click)="activar(p)">
+                            <lucide-icon [img]="checkIcon" [size]="11" />Activar
+                          </button>
+                        }
                         <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-slate-300 transition active:scale-95" (click)="openEdit(p)">
                           <lucide-icon [img]="pencilIcon" [size]="11" />Editar
                         </button>
@@ -398,6 +433,8 @@ export class EquipoPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly profiles = inject(ProfilesService);
   private readonly layout = inject(LayoutService);
+  private readonly settings = inject(SettingsService);
+  private readonly confirmDialog = inject(ConfirmService);
 
   readonly plusIcon = Plus;
   readonly searchIcon = Search;
@@ -421,6 +458,9 @@ export class EquipoPageComponent implements OnInit {
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
   readonly list = signal<ProfileRow[]>([]);
+  readonly registro = signal<Registro | null>(null);
+  readonly copiado = signal(false);
+  readonly pendientes = computed(() => this.list().filter((p) => p.email_verificado === false));
   readonly showCreate = signal(false);
   readonly creating = signal(false);
   readonly savingEdit = signal(false);
@@ -450,6 +490,43 @@ export class EquipoPageComponent implements OnInit {
     this.ownName = this.auth.profile()?.full_name ?? '';
     this.originalOwnName = this.ownName;
     await this.load();
+    if (this.auth.isStaff()) {
+      try {
+        this.registro.set(await this.settings.getRegistro());
+      } catch {
+        /* informativo */
+      }
+    }
+  }
+
+  async toggleRegistro(): Promise<void> {
+    const r = this.registro();
+    if (!r) return;
+    this.registro.set(await this.settings.saveRegistro({ activo: !r.activo }));
+  }
+
+  async regenerarCodigo(): Promise<void> {
+    if (!(await this.confirmDialog.ask('¿Generar un código nuevo? El código anterior dejará de servir.', { okLabel: 'Generar' }))) return;
+    this.registro.set(await this.settings.saveRegistro({ regenerar: true }));
+  }
+
+  async copiarCodigo(codigo: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(codigo);
+      this.copiado.set(true);
+      setTimeout(() => this.copiado.set(false), 2000);
+    } catch {
+      /* el navegador no permite copiar: el código queda visible */
+    }
+  }
+
+  async activar(p: ProfileRow): Promise<void> {
+    try {
+      await this.profiles.verify(p.id);
+      await this.load();
+    } catch (e) {
+      this.loadError.set(e instanceof Error ? e.message : 'No se pudo activar la cuenta');
+    }
   }
 
   async load(): Promise<void> {

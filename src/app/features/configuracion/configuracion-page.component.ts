@@ -14,12 +14,18 @@ import {
   Route,
   Save,
   WifiOff,
-  MapPin
+  MapPin,
+  SlidersHorizontal,
+  ShieldAlert,
+  Satellite
 } from 'lucide-angular';
 
 import { AuthService } from '../../auth/auth.service';
 import { LayoutService } from '../../core/services/layout.service';
 import {
+  Deteccion,
+  DeteccionNum,
+  DeteccionResponse,
   InterfazResponse,
   Rol,
   RolInterfaz,
@@ -29,7 +35,7 @@ import {
 } from '../../core/services/settings.service';
 import { apiErrorMessage } from '../../core/utils/api-error.util';
 
-type Tab = 'umbrales' | 'interfaz';
+type Tab = 'umbrales' | 'deteccion' | 'interfaz';
 
 interface CampoUmbral {
   key: keyof Umbrales;
@@ -80,6 +86,9 @@ const ROLES: { key: Rol; label: string }[] = [
       <div class="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 w-fit">
         <button type="button" class="tab-btn" [class.is-on]="tab() === 'umbrales'" (click)="tab.set('umbrales')">
           <lucide-icon [img]="gaugeIcon" [size]="14" />Umbrales de alerta
+        </button>
+        <button type="button" class="tab-btn" [class.is-on]="tab() === 'deteccion'" (click)="tab.set('deteccion')">
+          <lucide-icon [img]="slidersIcon" [size]="14" />Parámetros de detección
         </button>
         <button type="button" class="tab-btn" [class.is-on]="tab() === 'interfaz'" (click)="tab.set('interfaz')">
           <lucide-icon [img]="gridIcon" [size]="14" />Interfaz por rol
@@ -167,6 +176,106 @@ const ROLES: { key: Rol; label: string }[] = [
                 <lucide-icon [img]="saveIcon" [size]="14" />{{ saving() ? 'Guardando...' : 'Guardar umbrales' }}
               </button>
             </div>
+          } @else {
+            <div class="space-y-3" aria-label="Cargando" role="status">
+              @for (n of [1, 2, 3]; track n) {
+                <div class="space-y-1.5"><span class="skeleton h-3 w-1/3"></span><span class="skeleton h-9 w-full"></span></div>
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <!-- ═══════════ PARÁMETROS DE DETECCIÓN (CP020) ═══════════ -->
+      @if (tab() === 'deteccion') {
+        <section class="card p-5 sm:p-6">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h2 class="text-[16px] font-semibold text-slate-900">Parámetros de detección</h2>
+              <p class="text-[12.5px] text-slate-500 mt-1 max-w-2xl">
+                Ajusta qué tan sensible es el motor que detecta anomalías y sabotajes. Hoy el motor funciona con reglas
+                y pesos que se pueden explicar; estos son los parámetros que usa. Los cambios se aplican desde el siguiente reporte de posición.
+              </p>
+            </div>
+            @if (deteccion()?.actualizado) {
+              <p class="text-[11.5px] text-slate-400">Último cambio: {{ deteccion()!.actualizado | date: 'dd/MM/yyyy HH:mm' }} · {{ deteccion()!.actualizadoPor }}</p>
+            }
+          </div>
+
+          @if (deteccion(); as d) {
+            <h3 class="text-[13.5px] font-semibold text-slate-900 mb-2">Sensibilidad general</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" role="radiogroup" aria-label="Sensibilidad">
+              @for (n of niveles; track n.key) {
+                <button type="button" role="radio" [attr.aria-checked]="d.valores.sensibilidad === n.key"
+                        class="text-left rounded-xl p-4 ring-1 transition"
+                        [class]="d.valores.sensibilidad === n.key ? 'ring-2 ring-blue-600 bg-blue-50/50' : 'ring-slate-200 hover:bg-slate-50'"
+                        [disabled]="saving() || !auth.isStaff()" (click)="aplicarNivel(n.key)">
+                  <p class="text-[13.5px] font-semibold text-slate-900">{{ n.label }}</p>
+                  <p class="text-[12px] text-slate-500 mt-1 leading-snug">{{ n.desc }}</p>
+                  <p class="text-[11px] text-slate-400 mt-2 tnum">Desvío {{ d.presets[n.key].umbrales.desvio_m }} m · sin señal {{ d.presets[n.key].umbrales.sin_senal_s }} s · sabotaje desde {{ d.presets[n.key].deteccion.umbral_sabotaje }} pts</p>
+                </button>
+              }
+            </div>
+            @if (d.valores.sensibilidad === 'personalizada') {
+              <p class="text-[12px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2 mb-5">Estás usando valores personalizados (no coinciden con un nivel).</p>
+            }
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div class="rounded-xl ring-1 ring-slate-200 p-4">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="w-7 h-7 rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100 flex items-center justify-center"><lucide-icon [img]="shieldAlertIcon" [size]="14" /></span>
+                  <h3 class="text-[13.5px] font-semibold text-slate-900">Puntaje de posible sabotaje</h3>
+                </div>
+                <p class="text-[11.5px] text-slate-500 mb-3 leading-snug">Cada evento de las últimas 24 h suma puntos (máximo dos veces por tipo). Al llegar al umbral se crea la alerta «Posible sabotaje o robo».</p>
+                <label class="input-label" for="d-umbral">Umbral de alerta</label>
+                <div class="relative mb-4">
+                  <input id="d-umbral" type="number" class="input pr-14 tnum" [min]="d.rangos.umbral_sabotaje.min" [max]="d.rangos.umbral_sabotaje.max" [disabled]="!auth.isStaff()" [(ngModel)]="detForm.umbral_sabotaje" name="umbral" />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11.5px] text-slate-400">puntos</span>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  @for (pz of pesos; track pz.key) {
+                    <div>
+                      <label class="input-label" [for]="'d-' + pz.key">{{ pz.label }}</label>
+                      <input type="number" class="input tnum" [id]="'d-' + pz.key" [min]="d.rangos[pz.key].min" [max]="d.rangos[pz.key].max" [disabled]="!auth.isStaff()" [(ngModel)]="detForm[pz.key]" [name]="pz.key" />
+                    </div>
+                  }
+                </div>
+                <p class="text-[11.5px] text-slate-600 mt-3 bg-slate-50 rounded-lg px-3 py-2 leading-snug">{{ ejemploSabotaje() }}</p>
+              </div>
+
+              <div class="rounded-xl ring-1 ring-slate-200 p-4">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100 flex items-center justify-center"><lucide-icon [img]="satelliteIcon" [size]="14" /></span>
+                  <h3 class="text-[13.5px] font-semibold text-slate-900">Posible GPS spoofing</h3>
+                </div>
+                <p class="text-[11.5px] text-slate-500 mb-3 leading-snug">Se alerta cuando la posición salta una distancia grande en poco tiempo, con una velocidad imposible para un camión.</p>
+                <label class="input-label" for="d-salto">Salto mínimo</label>
+                <div class="relative mb-3">
+                  <input id="d-salto" type="number" class="input pr-12 tnum" [min]="d.rangos.spoofing_salto_m.min" [max]="d.rangos.spoofing_salto_m.max" [disabled]="!auth.isStaff()" [(ngModel)]="detForm.spoofing_salto_m" name="salto" />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11.5px] text-slate-400">m</span>
+                </div>
+                <label class="input-label" for="d-kmh">Velocidad imposible desde</label>
+                <div class="relative">
+                  <input id="d-kmh" type="number" class="input pr-14 tnum" [min]="d.rangos.spoofing_kmh.min" [max]="d.rangos.spoofing_kmh.max" [disabled]="!auth.isStaff()" [(ngModel)]="detForm.spoofing_kmh" name="kmh" />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[11.5px] text-slate-400">km/h</span>
+                </div>
+                <p class="text-[11.5px] text-slate-500 mt-4 leading-snug">
+                  Los umbrales de desvío, señal y velocidad están en la pestaña <button type="button" class="font-semibold text-blue-600 hover:underline" (click)="tab.set('umbrales')">Umbrales de alerta</button>
+                  (desvío actual {{ d.umbrales.desvio_m }} m, sin señal {{ d.umbrales.sin_senal_s }} s).
+                </p>
+              </div>
+            </div>
+
+            @if (auth.isStaff()) {
+              <div class="flex flex-wrap items-center justify-end gap-2 mt-5">
+                <button type="button" class="btn-ghost" [disabled]="saving()" (click)="resetDeteccion()">
+                  <lucide-icon [img]="resetIcon" [size]="14" />Volver a sensibilidad media
+                </button>
+                <button type="button" class="btn-dark" [disabled]="saving() || !deteccionDirty()" (click)="saveDeteccion()">
+                  <lucide-icon [img]="saveIcon" [size]="14" />{{ saving() ? 'Guardando...' : 'Guardar parámetros' }}
+                </button>
+              </div>
+            }
           } @else {
             <div class="space-y-3" aria-label="Cargando" role="status">
               @for (n of [1, 2, 3]; track n) {
@@ -318,6 +427,24 @@ export class ConfiguracionPageComponent implements OnInit {
   readonly alertIcon = AlertCircle;
   readonly lockIcon = Lock;
   readonly pinIcon = MapPin;
+  readonly slidersIcon = SlidersHorizontal;
+  readonly shieldAlertIcon = ShieldAlert;
+  readonly satelliteIcon = Satellite;
+
+  readonly niveles: { key: 'baja' | 'media' | 'alta'; label: string; desc: string }[] = [
+    { key: 'baja', label: 'Baja', desc: 'Espera más evidencia. Menos falsas alarmas, pero avisa más tarde.' },
+    { key: 'media', label: 'Media (recomendada)', desc: 'Equilibrio entre avisar a tiempo y evitar falsas alarmas.' },
+    { key: 'alta', label: 'Alta', desc: 'Avisa ante la menor señal. Útil en rutas peligrosas; habrá más alertas.' }
+  ];
+  readonly pesos: { key: DeteccionNum; label: string }[] = [
+    { key: 'peso_desvio', label: 'Desvío de ruta' },
+    { key: 'peso_spoofing', label: 'GPS spoofing' },
+    { key: 'peso_jamming', label: 'Pérdida de señal' },
+    { key: 'peso_parada_riesgo', label: 'Detención en zona de riesgo' },
+    { key: 'peso_salida_zona', label: 'Salida de geocerca' }
+  ];
+  readonly deteccion = signal<DeteccionResponse | null>(null);
+  detForm: Partial<Deteccion> = {};
 
   readonly grupos = GRUPOS;
   readonly roles = ROLES;
@@ -337,12 +464,14 @@ export class ConfiguracionPageComponent implements OnInit {
   };
 
   async ngOnInit(): Promise<void> {
-    this.layout.setPage('Configuración', 'Umbrales de alerta del motor de detección e interfaz por rol');
-    if (this.route.snapshot.queryParamMap.get('tab') === 'interfaz') this.tab.set('interfaz');
+    this.layout.setPage('Configuración', 'Umbrales, parámetros de detección e interfaz por rol');
+    const t = this.route.snapshot.queryParamMap.get('tab');
+    if (t === 'interfaz' || t === 'deteccion') this.tab.set(t);
     try {
-      const [u, i] = await Promise.all([this.settings.getUmbrales(), this.settings.loadInterfaz()]);
+      const [u, i, d] = await Promise.all([this.settings.getUmbrales(), this.settings.loadInterfaz(), this.settings.getDeteccion()]);
       this.setUmbrales(u);
       if (i) this.setInterfaz(i);
+      this.setDeteccion(d);
     } catch (e) {
       this.flash(false, apiErrorMessage(e, 'No se pudo cargar la configuración'));
     }
@@ -351,6 +480,79 @@ export class ConfiguracionPageComponent implements OnInit {
   private setUmbrales(u: UmbralesResponse): void {
     this.umbrales.set(u);
     this.form = { ...u.valores };
+  }
+
+  private setDeteccion(d: DeteccionResponse): void {
+    this.deteccion.set(d);
+    this.detForm = { ...d.valores };
+  }
+
+  deteccionDirty(): boolean {
+    const d = this.deteccion()?.valores;
+    if (!d) return false;
+    return (Object.keys(this.deteccion()!.rangos) as DeteccionNum[]).some((k) => Number(this.detForm[k]) !== d[k]);
+  }
+
+  ejemploSabotaje(): string {
+    const f = this.detForm;
+    const u = Number(f.umbral_sabotaje) || 0;
+    const combos: [string, number][] = [
+      ['un desvío y una pérdida de señal', Number(f.peso_desvio) + Number(f.peso_jamming)],
+      ['dos desvíos', 2 * Number(f.peso_desvio)],
+      ['un spoofing y una detención en zona de riesgo', Number(f.peso_spoofing) + Number(f.peso_parada_riesgo)]
+    ];
+    return combos
+      .map(([t, p]) => `${t[0].toUpperCase() + t.slice(1)} suman ${p} puntos: ${p >= u ? 'sí alerta' : 'no alerta'}.`)
+      .join(' ');
+  }
+
+  async aplicarNivel(nivel: 'baja' | 'media' | 'alta'): Promise<void> {
+    if (!(await this.confirmDialog.ask(`¿Aplicar la sensibilidad ${nivel}? Cambia también los umbrales de desvío, señal y detención.`, { okLabel: 'Aplicar', danger: false }))) return;
+    this.saving.set(true);
+    try {
+      this.setDeteccion(await this.settings.setSensibilidad(nivel));
+      this.setUmbrales(await this.settings.getUmbrales());
+      this.flash(true, `Sensibilidad ${nivel} aplicada. El motor ya usa los nuevos parámetros.`);
+    } catch (e) {
+      this.flash(false, apiErrorMessage(e, 'No se pudo aplicar la sensibilidad'));
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async saveDeteccion(): Promise<void> {
+    const d = this.deteccion();
+    if (!d) return;
+    for (const [k, r] of Object.entries(d.rangos) as [DeteccionNum, { min: number; max: number }][]) {
+      const v = Number(this.detForm[k]);
+      if (!Number.isFinite(v) || v < r.min || v > r.max) {
+        this.flash(false, `Ingresa un valor entre ${r.min} y ${r.max} en todos los campos.`);
+        return;
+      }
+    }
+    this.saving.set(true);
+    try {
+      this.setDeteccion(await this.settings.saveDeteccion(this.detForm));
+      this.flash(true, 'Parámetros guardados. El motor de detección ya los usa.');
+    } catch (e) {
+      this.flash(false, apiErrorMessage(e, 'No se pudieron guardar los parámetros'));
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async resetDeteccion(): Promise<void> {
+    if (!(await this.confirmDialog.ask('¿Volver a la sensibilidad media y a los pesos por defecto?'))) return;
+    this.saving.set(true);
+    try {
+      this.setDeteccion(await this.settings.resetDeteccion());
+      this.setUmbrales(await this.settings.getUmbrales());
+      this.flash(true, 'Se restableció la sensibilidad media.');
+    } catch (e) {
+      this.flash(false, apiErrorMessage(e, 'No se pudo restablecer'));
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   private setInterfaz(i: InterfazResponse): void {

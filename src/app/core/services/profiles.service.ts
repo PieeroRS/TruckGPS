@@ -12,6 +12,7 @@ export interface ProfileRow {
   email: string;
   role: ProfileRole;
   created_at: string;
+  email_verificado?: boolean;
 }
 
 export interface CreateDriverInput {
@@ -34,6 +35,15 @@ export class ProfilesService {
   canManageTeam(): boolean {
     const role = this.auth.profile()?.role;
     return role === 'admin' || role === 'supervisor';
+  }
+
+  /** Activa una cuenta creada desde «Crear cuenta» cuando el correo de verificación no llegó. */
+  async verify(id: string): Promise<void> {
+    try {
+      await this.api.post(`/profiles/${id}/verificar`);
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'No se pudo activar la cuenta'));
+    }
   }
 
   async list(): Promise<ProfileRow[]> {
