@@ -543,7 +543,7 @@ export class MapaVivoPageComponent implements OnInit, AfterViewInit, OnDestroy {
     const zoom = vehicles.length > 0 ? 6 : 5;
 
     this.map = createOsmMap(this.mapEl.nativeElement, center, zoom);
-    this.detachTraffic = this.liveTraffic.attach(this.map);
+    this.detachTraffic = this.liveTraffic.attach(this.map, { position: 'topleft' });
     this.refreshMarkers();
 
     for (const r of SAMPLE_ROUTES) {
