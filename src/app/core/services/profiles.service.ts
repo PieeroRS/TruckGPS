@@ -37,6 +37,15 @@ export class ProfilesService {
     return role === 'admin' || role === 'supervisor';
   }
 
+  /** Quita una cuenta (sus registros se conservan sin autor). */
+  async remove(id: string): Promise<void> {
+    try {
+      await this.api.delete(`/profiles/${id}`);
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'No se pudo quitar la cuenta'));
+    }
+  }
+
   /** Activa una cuenta creada desde «Crear cuenta» cuando el correo de verificación no llegó. */
   async verify(id: string): Promise<void> {
     try {
