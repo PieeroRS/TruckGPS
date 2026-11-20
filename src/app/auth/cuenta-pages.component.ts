@@ -93,11 +93,6 @@ export class CuentaShellComponent {
             <label class="block text-[13px] font-medium text-slate-700 mb-1.5" for="rg-pass2">Repite la contraseña</label>
             <input id="rg-pass2" [type]="ver ? 'text' : 'password'" [class]="input" name="pass2" [(ngModel)]="password2" autocomplete="new-password" required />
           </div>
-          <div>
-            <label class="block text-[13px] font-medium text-slate-700 mb-1.5" for="rg-code">Código de la empresa</label>
-            <input id="rg-code" [class]="input + ' uppercase tracking-wider'" name="code" [(ngModel)]="codigo" placeholder="TG-XXXXXX" autocomplete="off" required />
-            <p class="text-[11.5px] text-slate-400 mt-1.5">Te lo da tu supervisor. Así solo el personal de tu empresa puede crear cuentas.</p>
-          </div>
 
           @if (error()) {
             <div class="flex items-start gap-2.5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
@@ -140,7 +135,6 @@ export class RegistroPageComponent {
   email = '';
   password = '';
   password2 = '';
-  codigo = '';
   ver = false;
   readonly enviando = signal(false);
   readonly error = signal<string | null>(null);
@@ -158,14 +152,12 @@ export class RegistroPageComponent {
     if (!/^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/.test(this.email.trim())) return this.error.set('Escribe un correo válido.');
     if (this.faltan().length) return this.error.set(`La contraseña debe tener ${this.faltan().join(', ')}.`);
     if (this.password !== this.password2) return this.error.set('Las contraseñas no coinciden.');
-    if (!this.codigo.trim()) return this.error.set('Escribe el código de la empresa.');
     this.enviando.set(true);
     const r = await this.auth.register({
       full_name: this.nombre.trim(),
       email: this.email.trim(),
       password: this.password,
-      password2: this.password2,
-      codigo_empresa: this.codigo.trim()
+      password2: this.password2
     });
     this.enviando.set(false);
     if (!r.ok) return this.error.set(r.error ?? 'No se pudo crear la cuenta.');

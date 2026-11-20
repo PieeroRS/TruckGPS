@@ -118,16 +118,11 @@ import { ConfirmService } from '../../core/services/confirm.service';
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="min-w-0">
               <h3 class="text-[15px] font-semibold text-slate-900 tracking-tight">Cuentas creadas por el propio usuario</h3>
-              <p class="text-[12.5px] text-slate-500 mt-1 max-w-xl">Comparte este código con tu personal: lo piden en «Crear cuenta». Las cuentas nuevas entran como conductor y deben verificar su correo.</p>
+              <p class="text-[12.5px] text-slate-500 mt-1 max-w-xl">Cualquier persona puede registrarse desde «Crear cuenta». Las cuentas nuevas entran como conductor y deben verificar su correo. Si no reconoces una, quítala con «Quitar» en la lista.</p>
             </div>
             <label class="inline-flex items-center gap-2 text-[12.5px] font-semibold text-slate-700 cursor-pointer">
               <input type="checkbox" class="accent-blue-600 w-4 h-4" [checked]="reg.activo" (change)="toggleRegistro()" />Permitir crear cuentas
             </label>
-          </div>
-          <div class="flex flex-wrap items-center gap-2 mt-4">
-            <span class="px-3.5 py-2 rounded-lg bg-slate-900 text-white font-mono text-[15px] tracking-[0.15em]" [class.opacity-40]="!reg.activo">{{ reg.codigo }}</span>
-            <button type="button" class="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50" (click)="copiarCodigo(reg.codigo)">{{ copiado() ? 'Copiado' : 'Copiar' }}</button>
-            <button type="button" class="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50" (click)="regenerarCodigo()">Generar otro código</button>
           </div>
           @if (pendientes().length) {
             <p class="text-[12px] text-amber-700 mt-3">{{ pendientes().length }} {{ pendientes().length === 1 ? 'cuenta espera' : 'cuentas esperan' }} verificar su correo. Si el correo no les llegó, actívalas con «Activar» en la lista.</p>
@@ -265,6 +260,9 @@ import { ConfirmService } from '../../core/services/confirm.service';
                         <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-slate-300 transition active:scale-95" (click)="openEdit(p)">
                           <lucide-icon [img]="pencilIcon" [size]="11" />Editar
                         </button>
+                        @if (puedeQuitar(p)) {
+                          <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 ml-1.5 rounded-lg text-[11.5px] font-semibold text-red-600 ring-1 ring-red-200 hover:bg-red-50 transition active:scale-95" (click)="quitar(p)">Quitar</button>
+                        }
                       } @else {
                         <span class="text-[11.5px] text-slate-300">—</span>
                       }
@@ -469,7 +467,6 @@ export class EquipoPageComponent implements OnInit {
   readonly loadError = signal<string | null>(null);
   readonly list = signal<ProfileRow[]>([]);
   readonly registro = signal<Registro | null>(null);
-  readonly copiado = signal(false);
   readonly pendientes = computed(() => this.list().filter((p) => p.email_verificado === false));
   readonly showCreate = signal(false);
   readonly creating = signal(false);
@@ -518,18 +515,23 @@ export class EquipoPageComponent implements OnInit {
     this.registro.set(await this.settings.saveRegistro({ activo: !r.activo }));
   }
 
-  async regenerarCodigo(): Promise<void> {
-    if (!(await this.confirmDialog.ask('¿Generar un código nuevo? El código anterior dejará de servir.', { okLabel: 'Generar' }))) return;
-    this.registro.set(await this.settings.saveRegistro({ regenerar: true }));
+
+  puedeQuitar(p: ProfileRow): boolean {
+    if (p.id === this.auth.profile()?.id) return false;
+    return this.auth.profile()?.role === 'admin' || p.role === 'conductor';
   }
 
-  async copiarCodigo(codigo: string): Promise<void> {
+  async quitar(p: ProfileRow): Promise<void> {
+    const ok = await this.confirmDialog.ask(`¿Quitar la cuenta de ${p.full_name} (${p.email})? Ya no podrá iniciar sesión. Sus registros se conservan.`, { okLabel: 'Quitar' });
+    if (!ok) return;
     try {
-      await navigator.clipboard.writeText(codigo);
-      this.copiado.set(true);
-      setTimeout(() => this.copiado.set(false), 2000);
-    } catch {
-      /* el navegador no permite copiar: el código queda visible */
+      await this.profiles.remove(p.id);
+      await this.load();
+      this.listSuccess.set(`Se quitó la cuenta de ${p.full_name}.`);
+      if (this.listSuccessTimer) clearTimeout(this.listSuccessTimer);
+      this.listSuccessTimer = setTimeout(() => this.listSuccess.set(null), 6000);
+    } catch (e) {
+      this.loadError.set(e instanceof Error ? e.message : 'No se pudo quitar la cuenta');
     }
   }
 

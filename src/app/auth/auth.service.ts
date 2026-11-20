@@ -183,7 +183,7 @@ export class AuthService {
 
   // ─────────── cuentas: registro, verificación y recuperación ───────────
 
-  async register(body: { full_name: string; email: string; password: string; password2: string; codigo_empresa: string }): Promise<Resultado & { correoEnviado?: boolean }> {
+  async register(body: { full_name: string; email: string; password: string; password2: string }): Promise<Resultado & { correoEnviado?: boolean }> {
     try {
       const r = await this.api.post<{ mensaje: string; correoEnviado: boolean }>('/auth/registro', body);
       return { ok: true, mensaje: r.mensaje, correoEnviado: r.correoEnviado };
