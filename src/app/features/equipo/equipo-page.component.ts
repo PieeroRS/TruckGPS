@@ -172,6 +172,16 @@ import { ConfirmService } from '../../core/services/confirm.service';
         </div>
       }
 
+      @if (listSuccess()) {
+        <div class="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700 mb-4 msg-in" role="status">
+          <lucide-icon [img]="checkIcon" [size]="14" class="mt-0.5 shrink-0" />
+          <p class="text-[12.5px] leading-snug flex-1">{{ listSuccess() }}</p>
+          <button type="button" class="shrink-0 w-5 h-5 rounded-md text-emerald-500 hover:text-emerald-800 hover:bg-emerald-100 flex items-center justify-center transition" (click)="listSuccess.set(null)" aria-label="Cerrar">
+            <lucide-icon [img]="closeIcon" [size]="12" />
+          </button>
+        </div>
+      }
+
       <!-- ═══════════ TABLA ═══════════ -->
       <div class="card overflow-hidden anim-in" style="animation-delay: 230ms">
         <div class="px-5 py-3.5 border-b border-slate-200/80">
@@ -469,6 +479,9 @@ export class EquipoPageComponent implements OnInit {
   readonly editing = signal<ProfileRow | null>(null);
   readonly formError = signal<string | null>(null);
   readonly formSuccess = signal<string | null>(null);
+  /** CP005: confirmación visible después de editar un miembro (el modal se cierra). */
+  readonly listSuccess = signal<string | null>(null);
+  private listSuccessTimer: ReturnType<typeof setTimeout> | null = null;
 
   busqueda = '';
   filtroRol: ProfileRole | 'todos' = 'todos';
@@ -622,6 +635,16 @@ export class EquipoPageComponent implements OnInit {
       });
       await this.load();
       this.closeEdit();
+      const cambios: string[] = [];
+      if (this.editForm.full_name !== p.full_name) cambios.push(`nombre: ${this.editForm.full_name}`);
+      if (this.editForm.role !== p.role) cambios.push(`rol: ${this.roleLabel(this.editForm.role)}`);
+      this.listSuccess.set(
+        cambios.length
+          ? `Cambios guardados para ${this.editForm.full_name} (${cambios.join(', ')}).`
+          : `Perfil de ${this.editForm.full_name} guardado sin cambios.`
+      );
+      if (this.listSuccessTimer) clearTimeout(this.listSuccessTimer);
+      this.listSuccessTimer = setTimeout(() => this.listSuccess.set(null), 6000);
     } catch (err) {
       this.formError.set(err instanceof Error ? err.message : 'Error al guardar');
     } finally {

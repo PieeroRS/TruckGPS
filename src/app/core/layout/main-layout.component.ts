@@ -1,5 +1,6 @@
 import { ConfirmService } from '../services/confirm.service';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
+import { AiAlert } from '../models/dashboard.model';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import {
@@ -199,17 +200,55 @@ const STAFF_NAV = [
             </div>
           </div>
 
-          <a
-            routerLink="/dashboard"
-            class="relative p-2 rounded-md hover:bg-slate-100 transition"
-            [attr.aria-label]="'Alertas: ' + watcher.unattended() + ' sin atender'"
-            [title]="watcher.unattended() ? watcher.unattended() + ' alertas sin atender' : 'Sin alertas nuevas'"
-          >
-            <lucide-icon [img]="bellIcon" [size]="20" class="text-slate-600" />
-            @if (watcher.unattended()) {
-              <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center ring-2 ring-white tnum">{{ watcher.unattended() > 99 ? '99+' : watcher.unattended() }}</span>
+          <div class="relative">
+            <button
+              type="button"
+              class="relative p-2 rounded-md hover:bg-slate-100 transition"
+              [class.bg-slate-100]="notifOpen()"
+              [attr.aria-label]="'Notificaciones: ' + watcher.unattended() + ' alertas sin atender'"
+              [attr.aria-expanded]="notifOpen()"
+              aria-haspopup="dialog"
+              (click)="toggleNotif($event)"
+            >
+              <lucide-icon [img]="bellIcon" [size]="20" class="text-slate-600" />
+              @if (watcher.unattended()) {
+                <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center ring-2 ring-white tnum">{{ watcher.unattended() > 99 ? '99+' : watcher.unattended() }}</span>
+              }
+            </button>
+
+            @if (notifOpen()) {
+              <div class="absolute right-0 top-full mt-2 z-[1200] w-[min(360px,calc(100vw-24px))] rounded-xl bg-white shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] ring-1 ring-slate-200 overflow-hidden" role="dialog" aria-label="Notificaciones" (click)="$event.stopPropagation()">
+                <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100">
+                  <div>
+                    <p class="text-[13.5px] font-semibold text-slate-900">Notificaciones</p>
+                    <p class="text-[11.5px] text-slate-500">{{ watcher.unattended() ? watcher.unattended() + ' alertas sin atender' : 'No tienes alertas pendientes' }}</p>
+                  </div>
+                  <button type="button" class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700" (click)="notifOpen.set(false)" aria-label="Cerrar notificaciones">
+                    <lucide-icon [img]="closeIcon" [size]="15" />
+                  </button>
+                </div>
+                <ul class="max-h-[360px] overflow-y-auto divide-y divide-slate-100">
+                  @for (a of notifItems(); track a.id) {
+                    <li>
+                      <button type="button" class="w-full text-left flex items-start gap-2.5 px-4 py-3 hover:bg-slate-50 transition-colors" (click)="abrirAlerta(a)">
+                        <span class="mt-1.5 w-2 h-2 rounded-full shrink-0" [class]="a.severidad === 'high' ? 'bg-red-500' : a.severidad === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                        <span class="min-w-0 flex-1">
+                          <span class="block text-[12.5px] font-semibold text-slate-900 leading-snug">{{ a.titulo }}</span>
+                          <span class="block text-[11.5px] text-slate-500 leading-snug mt-0.5 line-clamp-2">{{ a.descripcion }}</span>
+                          <span class="block text-[11px] text-slate-400 mt-1">{{ a.afecta.join(', ') }}{{ a.afecta.length ? ' · ' : '' }}{{ a.tiempo }}{{ (a.estado ?? 'activa') === 'en_atencion' ? ' · en atención' : '' }}</span>
+                        </span>
+                      </button>
+                    </li>
+                  } @empty {
+                    <li class="px-4 py-8 text-center text-[12.5px] text-slate-500">Sin alertas por ahora.</li>
+                  }
+                </ul>
+                @if (auth.isStaff()) {
+                  <a routerLink="/dashboard" class="block px-4 py-2.5 text-center text-[12.5px] font-semibold text-blue-600 hover:bg-blue-50 border-t border-slate-100" (click)="notifOpen.set(false)">Ver todas las alertas</a>
+                }
+              </div>
             }
-          </a>
+          </div>
 
           <div class="hidden sm:flex items-center gap-2 pl-2 ml-1 border-l border-slate-200">
             <div class="w-8 h-8 rounded-full bg-[#1e3a8a] text-white text-xs font-semibold flex items-center justify-center">{{ auth.initials() }}</div>
@@ -442,6 +481,35 @@ export class MainLayoutComponent {
   );
   readonly loggingOut = signal(false);
 
+  // CP026: panel de notificaciones de la campana.
+  readonly notifOpen = signal(false);
+  readonly notifItems = computed(() =>
+    [...this.watcher.mine()]
+      .sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.severidad] - ({ high: 0, medium: 1, low: 2 })[b.severidad])
+      .slice(0, 8)
+  );
+
+  toggleNotif(ev: Event): void {
+    ev.stopPropagation();
+    this.notifOpen.update((v) => !v);
+  }
+
+  @HostListener('document:click')
+  cerrarNotifFuera(): void {
+    this.notifOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  cerrarNotifEsc(): void {
+    this.notifOpen.set(false);
+  }
+
+  abrirAlerta(a: AiAlert): void {
+    this.notifOpen.set(false);
+    if (this.auth.isStaff()) void this.router.navigate(['/dashboard'], { queryParams: { alerta: a.id } });
+    else if (a.vehicleId) void this.router.navigate(['/mapa-vivo'], { queryParams: { vehiculo: a.vehicleId } });
+  }
+
   constructor() {
     this.watcher.start();
     this.inactividad.start();
@@ -490,7 +558,7 @@ export class MainLayoutComponent {
     this.closeDrawer();
     try {
       this.watcher.stop();
-      await this.auth.logout();
+      await this.auth.logout('salida');
     } finally {
       this.loggingOut.set(false);
     }

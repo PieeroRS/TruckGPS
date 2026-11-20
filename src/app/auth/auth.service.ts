@@ -291,7 +291,7 @@ export class AuthService {
     if (!(await this.confirmDialog.ask('¿Cerrar sesión en TruckGPS?', { okLabel: 'Cerrar sesión' }))) {
       return;
     }
-    await this.logout();
+    await this.logout('salida');
   }
 
   private clearSession(removeToken = true): void {

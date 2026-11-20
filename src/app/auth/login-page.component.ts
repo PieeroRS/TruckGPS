@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -202,6 +202,8 @@ export class LoginPageComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly settings = inject(SettingsService);
+  /** La app no usa zone.js: tras cada await hay que pedir que se vuelva a pintar la pantalla. */
+  private readonly cdr = inject(ChangeDetectorRef);
 
   readonly truckIcon = Truck;
   readonly eyeIcon = Eye;
@@ -237,6 +239,7 @@ export class LoginPageComponent implements OnInit {
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap;
     if (q.get('email')) this.username = q.get('email') ?? '';
+    if (q.get('motivo') === 'salida') this.aviso = 'Cerraste sesión correctamente. Puedes volver a ingresar cuando quieras.';
     if (q.get('motivo') === 'inactividad') this.aviso = 'Cerramos tu sesión por inactividad, como pediste en tus preferencias de seguridad.';
     const redirect = this.route.snapshot.queryParamMap.get('redirect');
     if (redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.startsWith('/login')) {
@@ -254,11 +257,13 @@ export class LoginPageComponent implements OnInit {
       this.submitting = false;
       this.error = result.error ?? 'Credenciales inválidas.';
       this.noVerificado = !!result.noVerificado;
+      this.cdr.markForCheck();
       return;
     }
     if (this.auth.profile()?.onboarding_ok === false) {
       await this.router.navigateByUrl('/bienvenida');
       this.submitting = false;
+      this.cdr.markForCheck();
       return;
     }
     // Pantalla de inicio configurada para el rol (ir a "/" desde /login no navega: redirige a /login).
@@ -269,6 +274,7 @@ export class LoginPageComponent implements OnInit {
     }
     const ok = await this.router.navigateByUrl(target);
     this.submitting = false;
+    this.cdr.markForCheck();
     if (!ok) await this.router.navigateByUrl('/dashboard');
   }
 
@@ -279,5 +285,6 @@ export class LoginPageComponent implements OnInit {
     this.noVerificado = false;
     this.error = '';
     this.aviso = r.ok ? (r.mensaje ?? 'Te enviamos un nuevo correo.') : (r.error ?? '');
+    this.cdr.markForCheck();
   }
 }

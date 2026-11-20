@@ -599,7 +599,7 @@ export class MiPerfilPageComponent implements OnInit {
     if (!(await this.confirmDialog.ask('¿Cerrar sesión en TruckGPS?', { okLabel: 'Cerrar sesión' }))) return;
     this.loggingOut.set(true);
     try {
-      await this.auth.logout();
+      await this.auth.logout('salida');
     } finally {
       this.loggingOut.set(false);
     }
