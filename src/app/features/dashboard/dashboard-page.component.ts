@@ -9,9 +9,11 @@ import {
   OnDestroy,
   OnInit,
   ViewChild,
+  computed,
   inject,
   signal
 } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import * as L from 'leaflet';
@@ -77,6 +79,18 @@ const ICON_MAP: Record<string, LucideIcon> = {
   gauge: Gauge,
   package: Package,
   activity: Activity
+};
+
+const TIPO_ALERTA: Record<string, string> = {
+  manual: 'Manual',
+  desvio: 'Desvío de ruta',
+  spoofing: 'GPS spoofing',
+  jamming: 'GPS jamming',
+  salida_zona: 'Salida de zona',
+  parada_riesgo: 'Parada en zona de riesgo',
+  trafico: 'Tráfico',
+  sabotaje: 'Sabotaje',
+  exceso_velocidad: 'Exceso de velocidad'
 };
 
 @Component({
@@ -164,7 +178,11 @@ const ICON_MAP: Record<string, LucideIcon> = {
               <div class="min-w-0">
                 <h2 class="text-[14px] font-semibold text-slate-900 tracking-tight">Alertas Predictivas IA</h2>
                 <p class="text-[11.5px] text-slate-500 mt-0.5">
-                  <span class="tnum font-medium">{{ dashboard.aiAlerts().length }}</span> alertas activas
+                  @if (hayFiltro()) {
+                    <span class="tnum font-medium">{{ alertasFiltradas().length }}</span> de {{ dashboard.aiAlerts().length }} alertas
+                  } @else {
+                    <span class="tnum font-medium">{{ dashboard.aiAlerts().length }}</span> alertas activas
+                  }
                 </p>
               </div>
             </div>
@@ -195,12 +213,45 @@ const ICON_MAP: Record<string, LucideIcon> = {
             </div>
           }
 
+          <div class="px-4 pt-3 space-y-2" role="group" aria-label="Filtros de alertas">
+            <div class="flex gap-1 p-0.5 rounded-lg bg-slate-100">
+              @for (s of filtrosSev; track s.id) {
+                <button type="button" (click)="filtroSev.set(s.id)" [attr.aria-pressed]="filtroSev() === s.id"
+                  class="flex-1 px-2 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors inline-flex items-center justify-center gap-1"
+                  [class]="filtroSev() === s.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'">
+                  @if (s.dot) { <span class="w-1.5 h-1.5 rounded-full" [class]="s.dot"></span> }
+                  {{ s.label }}<span class="tnum text-slate-400 font-medium">{{ conteoSev()[s.id] }}</span>
+                </button>
+              }
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <select class="select py-1.5 text-[12px]" [value]="filtroEstado()" (change)="filtroEstado.set($any($event.target).value)" aria-label="Filtrar por estado">
+                <option value="">Estado: todos</option>
+                <option value="activa">Sin atender</option>
+                <option value="en_atencion">En atención</option>
+              </select>
+              <select class="select py-1.5 text-[12px]" [value]="filtroTipo()" (change)="filtroTipo.set($any($event.target).value)" aria-label="Filtrar por tipo">
+                <option value="">Tipo: todos</option>
+                @for (t of tiposPresentes(); track t.id) { <option [value]="t.id">{{ t.label }}</option> }
+              </select>
+            </div>
+            @if (hayFiltro()) {
+              <button type="button" class="text-[11.5px] font-semibold text-blue-600 hover:underline" (click)="limpiarFiltros()">Quitar filtros</button>
+            }
+          </div>
+
           <div class="p-3 sm:p-4 space-y-2.5 overflow-y-auto flex-1" style="max-height: 500px">
-            @for (a of dashboard.aiAlerts(); track a.id; let ai = $index) {
-              <div class="alert-slide" [style.animation-delay.ms]="ai * 50">
+            @for (a of alertasFiltradas(); track a.id; let ai = $index) {
+              <div class="alert-slide" [id]="'alerta-' + a.id" [class.ring-2]="a.id === resaltada()" [class.ring-blue-400]="a.id === resaltada()" [class.rounded-xl]="a.id === resaltada()" [style.animation-delay.ms]="ai * 50">
                 <app-alert-card [alert]="a" (changed)="onAlertChanged()" (edit)="openAlertForm($event)" (remove)="deleteAlert($event.id)" />
               </div>
             } @empty {
+              @if (hayFiltro() && dashboard.aiAlerts().length) {
+                <div class="py-10 text-center">
+                  <p class="text-[13px] font-medium text-slate-600">Ninguna alerta coincide con los filtros</p>
+                  <button type="button" class="mt-2 text-[12px] font-semibold text-blue-600 hover:underline" (click)="limpiarFiltros()">Ver todas</button>
+                </div>
+              } @else {
               <div class="py-14 text-center">
                 <div class="w-12 h-12 rounded-xl bg-slate-50 ring-1 ring-slate-200/70 flex items-center justify-center mx-auto mb-3">
                   <lucide-icon [img]="inboxIcon" [size]="20" class="text-slate-300" />
@@ -208,6 +259,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
                 <p class="text-[13px] font-medium text-slate-600">Sin alertas activas</p>
                 <p class="text-[12px] text-slate-400 mt-1 px-6 leading-relaxed">Todo en orden. El motor de detección avisará ante cualquier anomalía.</p>
               </div>
+              }
             }
           </div>
 
@@ -412,6 +464,46 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
   readonly alertTriangleIcon = AlertTriangle;
 
   readonly refreshing = signal(false);
+  private readonly route = inject(ActivatedRoute);
+
+  // CP026: filtros del panel de alertas.
+  readonly filtrosSev = [
+    { id: '', label: 'Todas', dot: '' },
+    { id: 'high', label: 'Alta', dot: 'bg-red-500' },
+    { id: 'medium', label: 'Media', dot: 'bg-amber-500' },
+    { id: 'low', label: 'Baja', dot: 'bg-emerald-500' }
+  ];
+  readonly filtroSev = signal('');
+  readonly filtroEstado = signal('');
+  readonly filtroTipo = signal('');
+  readonly resaltada = signal<string | null>(null);
+  readonly hayFiltro = computed(() => !!(this.filtroSev() || this.filtroEstado() || this.filtroTipo()));
+  readonly conteoSev = computed(() => {
+    const c: Record<string, number> = { '': 0, high: 0, medium: 0, low: 0 };
+    for (const a of this.dashboard.aiAlerts()) {
+      c[''] += 1;
+      c[a.severidad] = (c[a.severidad] ?? 0) + 1;
+    }
+    return c;
+  });
+  readonly tiposPresentes = computed(() => {
+    const vistos = new Set(this.dashboard.aiAlerts().map((a) => a.tipo || 'manual'));
+    return [...vistos].map((id) => ({ id, label: TIPO_ALERTA[id] ?? id })).sort((a, b) => a.label.localeCompare(b.label));
+  });
+  readonly alertasFiltradas = computed(() =>
+    this.dashboard.aiAlerts().filter(
+      (a) =>
+        (!this.filtroSev() || a.severidad === this.filtroSev()) &&
+        (!this.filtroEstado() || (a.estado ?? 'activa') === this.filtroEstado()) &&
+        (!this.filtroTipo() || (a.tipo || 'manual') === this.filtroTipo())
+    )
+  );
+
+  limpiarFiltros(): void {
+    this.filtroSev.set('');
+    this.filtroEstado.set('');
+    this.filtroTipo.set('');
+  }
 
   readonly legend = [
     { label: 'En ruta', dot: 'bg-emerald-500' },
@@ -439,6 +531,15 @@ export class DashboardPageComponent implements OnInit, AfterViewInit, OnDestroy 
   summary = this.dashboard.daySummary;
 
   ngOnInit(): void {
+    // Desde el panel de la campana: /dashboard?alerta=<id> resalta esa alerta.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      const id = q.get('alerta');
+      if (!id) return;
+      this.limpiarFiltros();
+      this.resaltada.set(id);
+      setTimeout(() => document.getElementById('alerta-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
+      setTimeout(() => this.resaltada.set(null), 4000);
+    });
     this.layout.setPage('Dashboard', 'Centro de control · Operaciones en tiempo real');
   }
 
