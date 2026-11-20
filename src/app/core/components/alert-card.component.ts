@@ -23,6 +23,7 @@ import {
 import { AuthService } from '../../auth/auth.service';
 import { AiAlert, AlertAction } from '../models/dashboard.model';
 import { AiAlertsService } from '../services/ai-alerts.service';
+import { LayoutService } from '../services/layout.service';
 
 type LucideIcon = typeof Activity;
 
@@ -197,6 +198,7 @@ export class AlertCardComponent {
   private readonly alerts = inject(AiAlertsService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly layout = inject(LayoutService);
 
   readonly alert = input.required<AiAlert>();
   /** Se emite tras ejecutar una acción, para que la página recargue lo que necesite. */
@@ -282,6 +284,8 @@ export class AlertCardComponent {
     try {
       const res = await this.alerts.executeAction(this.alert().id, ac.codigo, nota);
       this.mensaje.set(res.resultado);
+      // Si la acción cierra la alerta, la tarjeta desaparece de la lista: el resultado se muestra abajo.
+      this.layout.avisar(`${ac.label}: ${res.resultado}`);
       this.changed.emit(res.alerta);
       if (res.navegar) {
         const [path, query] = res.navegar.split('?');
@@ -291,6 +295,7 @@ export class AlertCardComponent {
     } catch (e) {
       this.error.set(true);
       this.mensaje.set(e instanceof Error ? e.message : 'Error');
+      this.layout.avisar(e instanceof Error ? e.message : 'No se pudo completar la acción', true);
     } finally {
       this.busy.set(null);
     }

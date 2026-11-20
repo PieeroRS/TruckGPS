@@ -349,6 +349,16 @@ const STAFF_NAV = [
 
         <main class="flex-1 min-h-0" [class.page-in-a]="pageTick() % 2 === 0" [class.page-in-b]="pageTick() % 2 === 1">
           <router-outlet />
+
+          @if (layout.aviso(); as av) {
+            <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[1300] w-[min(520px,calc(100vw-24px))] flex items-start gap-2.5 px-4 py-3 rounded-xl shadow-[0_12px_40px_-12px_rgba(15,23,42,0.45)] ring-1 msg-in"
+              [class]="av.error ? 'bg-red-50 text-red-800 ring-red-200' : 'bg-emerald-600 text-white ring-emerald-700'" role="status">
+              <p class="text-[13px] leading-snug flex-1">{{ av.texto }}</p>
+              <button type="button" class="shrink-0 p-0.5 rounded-md opacity-80 hover:opacity-100" (click)="layout.aviso.set(null)" aria-label="Cerrar aviso">
+                <lucide-icon [img]="closeIcon" [size]="15" />
+              </button>
+            </div>
+          }
         </main>
 
         <!-- Conductor en el celular: lo principal siempre a un toque, con una mano -->
